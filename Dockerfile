@@ -7,19 +7,7 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositori
 
 # Install required packages
 RUN apk update && apk add --no-cache \
-    bash \
-    python3 \
-    py3-pip \
-    curl \
-    gzip \
-    bzip2 \
-    coreutils \
-    ca-certificates \
-    dcron \
-    gawk
-
-# Install Python modules
-RUN pip3 install --no-cache-dir flask
+    bash python3 py3-pip py3-flask curl gzip bzip2 coreutils ca-certificates dcron gawk
 
 # Set working directory
 WORKDIR /app
