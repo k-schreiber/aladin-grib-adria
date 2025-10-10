@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
+
+echo "[$(date)] Starting GRIB processing..."
 
 BASE_URL="https://opendata.chmi.cz/meteorology/weather/nwp_aladin/Lambert_2.3km"
 WORKDIR="/tmp/aladin"
@@ -75,3 +77,5 @@ ln -sf "$(basename "$OUTFILE")" "$OUTDIR/aladin_adriacenter_latest.grb2"
 cd "$WORKDIR"; ls -1dt run_* | tail -n +4 | xargs -r rm -rf || true
 
 echo "Wrote $OUTFILE"
+echo "[$(date)] GRIB processing completed successfully"
+
