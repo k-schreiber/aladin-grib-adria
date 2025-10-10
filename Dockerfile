@@ -1,8 +1,22 @@
 # Use the dtgeo/meteo-gfs-linux-alpine-wgrib2 image
 FROM dtgeo/meteo-gfs-linux-alpine-wgrib2:latest
 
-# Install bash and other utilities
-RUN apk add --no-cache bash python3 py3-pip curl gzip bzip2 coreutils awk ca-certificates busybox-cron
+# Configure APK repos (optional but safer)
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositories && \
+    echo "http://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories
+
+# Install required packages
+RUN apk update && apk add --no-cache \
+    bash \
+    python3 \
+    py3-pip \
+    curl \
+    gzip \
+    bzip2 \
+    coreutils \
+    ca-certificates \
+    dcron \
+    gawk
 
 # Install Python modules
 RUN pip3 install --no-cache-dir flask
