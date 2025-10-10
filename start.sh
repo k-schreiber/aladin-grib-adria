@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 
 # Run process.sh once in background and schedule hourly updates
 /app/process.sh || true &
