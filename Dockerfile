@@ -1,19 +1,18 @@
-# Use the public Alpine wgrib2 image (no auth needed)
-FROM peter-mount/wgrib2:latest
+# Use the dtgeo/meteo-gfs-linux-alpine-wgrib2 image
+FROM dtgeo/meteo-gfs-linux-alpine-wgrib2:latest
 
-# Install utilities
-RUN apk add --no-cache curl python3 py3-pip bash coreutils
-
+# Set working directory
 WORKDIR /app
 
-COPY process.sh /app/process.sh
-COPY server.py /app/server.py
-COPY start.sh /app/start.sh
+# Copy your application files
+COPY process.sh server.py start.sh /app/
 RUN chmod +x /app/*.sh
 
-VOLUME ["/data"]
+# Set environment variables
 ENV OUTDIR=/data
 
+# Expose the port the app will run on
 EXPOSE 8080
 
+# Command to run the application
 CMD ["/app/start.sh"]
