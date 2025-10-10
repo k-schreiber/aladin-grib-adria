@@ -1,0 +1,2 @@
+# Run process.sh every hour at minute 0
+0 * * * * /app/process.sh >> /proc/1/fd/1 2>&1
