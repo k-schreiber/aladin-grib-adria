@@ -1,6 +1,9 @@
 # Use the dtgeo/meteo-gfs-linux-alpine-wgrib2 image
 FROM dtgeo/meteo-gfs-linux-alpine-wgrib2:latest
 
+# Install bash and other utilities
+RUN apk add --no-cache bash curl python3 py3-pip coreutils
+
 # Set working directory
 WORKDIR /app
 
