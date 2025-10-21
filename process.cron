@@ -1,2 +1,2 @@
-# Run process.sh every hour at minute 0
-0 * * * * /app/process.sh >> /proc/1/fd/1 2>&1
+# Run load_and_merge_gribs.py every hour at minute 0
+0 * * * * python3 /app/load_and_merge_gribs.py >> /proc/1/fd/1 2>&1
