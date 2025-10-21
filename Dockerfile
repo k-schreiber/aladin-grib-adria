@@ -7,17 +7,21 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositori
 
 # Install required packages
 RUN apk update && apk add --no-cache \
-    bash python3 py3-pip py3-flask curl gzip bzip2 coreutils ca-certificates dcron gawk
+    bash python3 py3-pip py3-flask curl gzip bzip2 coreutils ca-certificates dcron gawk \
+    py3-requests py3-beautifulsoup4
 
 # Set working directory
 WORKDIR /app
 
 # Copy your application files
-COPY process.sh server.py start.sh /app/
-RUN chmod +x /app/*.sh
+COPY load_and_merge_gribs.py server.py start.sh /app/
+RUN chmod +x /app/*.sh /app/*.py
 
 # Set environment variables
 ENV OUTDIR=/data
+
+# Create data directory
+RUN mkdir -p /data /tmp/aladin
 
 # Expose the port the app will run on
 EXPOSE 8080
