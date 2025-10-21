@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# Run process.sh once in background and schedule hourly updates
-/app/process.sh || true &
+# Run load_and_merge_gribs.py once in background and schedule hourly updates
+python3 /app/load_and_merge_gribs.py || true &
 (crond -f &) &
 
 # Start Flask server
