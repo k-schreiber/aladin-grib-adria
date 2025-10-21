@@ -8,8 +8,8 @@ from datetime import datetime
 # ---------------- CONFIG ----------------
 BASE_URL = "https://opendata.chmi.cz/meteorology/weather/nwp_aladin/Lambert_2.3km/"
 RUN_DIRS = ["00", "06", "12", "18"]
-WORKDIR = "./tmp/aladin"
-OUTDIR = os.getenv("OUTDIR", "./data")
+WORKDIR = "/tmp/aladin"
+OUTDIR = os.getenv("OUTDIR", "/data")
 
 # Bounding box for Adria region
 LON_MIN = 13.0
