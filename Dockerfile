@@ -14,8 +14,11 @@ RUN apk update && apk add --no-cache \
 WORKDIR /app
 
 # Copy your application files
-COPY load_and_merge_gribs.py server.py start.sh /app/
+COPY load_and_merge_gribs.py server.py start.sh process.cron /app/
 RUN chmod +x /app/*.sh /app/*.py
+
+# Install crontab
+RUN crontab /app/process.cron
 
 # Set environment variables
 ENV OUTDIR=/data
