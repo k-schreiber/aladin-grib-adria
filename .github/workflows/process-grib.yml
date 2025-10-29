@@ -1,0 +1,57 @@
+name: Process ALADIN GRIB Files
+
+on:
+  schedule:
+    - cron: '5 * * * *'  # Every hour at :05
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  process-grib:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t aladin-processor .
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Process GRIB files
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/data:/data \
+            -e OUTDIR=/data \
+            aladin-processor \
+            python3 /app/load_and_merge_gribs.py
+        timeout-minutes: 30
+
+      - name: List generated files
+        run: ls -lh data/
+
+      - name: Create simple index
+        run: |
+          cd data
+          echo '<html><head><title>ALADIN GRIB Files</title></head><body><h1>ALADIN Adria GRIB Files</h1><ul>' > index.html
+          for file in *.grb2; do
+            if [ -f "$file" ]; then
+              size=$(ls -lh "$file" | awk '{print $5}')
+              echo "<li><a href=\"$file\">$file</a> ($size)</li>" >> index.html
+            fi
+          done
+          echo '</ul><p>Updated: '$(date -u)' UTC</p></body></html>' >> index.html
+          cat index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./data
+          keep_files: false
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
