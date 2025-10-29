@@ -38,7 +38,7 @@ jobs:
         run: |
           cd data
           echo '<html><head><title>ALADIN GRIB Files</title></head><body><h1>ALADIN Adria GRIB Files</h1><ul>' > index.html
-          for file in *.grb2; do
+          for file in *.grb; do
             if [ -f "$file" ]; then
               size=$(ls -lh "$file" | awk '{print $5}')
               echo "<li><a href=\"$file\">$file</a> ($size)</li>" >> index.html
