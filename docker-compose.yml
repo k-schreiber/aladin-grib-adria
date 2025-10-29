@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  aladin:
+    build: .
+    container_name: aladin-grib-processor
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - OUTDIR=/data
+      - PORT=8080
+    restart: unless-stopped

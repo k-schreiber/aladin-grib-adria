@@ -4,7 +4,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 DATA_DIR = os.environ.get("OUTDIR", "/data")
-LATEST_NAME = "aladin_adriacenter_latest.grb2"
+LATEST_NAME = "aladin_adriacenter_latest.grb"
 
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
@@ -77,10 +77,10 @@ def format_size(bytes):
 def parse_timestamp(filename):
     """Extract timestamp from filename"""
     try:
-        # Format: aladin_adriacenter_YYYYMMDDHH.grb2
+        # Format: aladin_adriacenter_YYYYMMDDHH.grb
         parts = filename.split('_')
         if len(parts) >= 3:
-            ts = parts[2].replace('.grb2', '')
+            ts = parts[2].replace('.grb', '')
             if len(ts) == 10 and ts.isdigit():
                 # Format as YYYY-MM-DD HH:00
                 return f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]} {ts[8:10]}:00"
@@ -105,7 +105,7 @@ def index():
     files = []
     if os.path.exists(DATA_DIR):
         for filename in os.listdir(DATA_DIR):
-            if filename.startswith('aladin_adriacenter_') and filename.endswith('.grb2') and filename != LATEST_NAME:
+            if filename.startswith('aladin_adriacenter_') and filename.endswith('.grb') and filename != LATEST_NAME:
                 filepath = os.path.join(DATA_DIR, filename)
                 if os.path.isfile(filepath):
                     stat = os.stat(filepath)
@@ -138,7 +138,7 @@ def latest():
 @app.route('/files/<filename>')
 def download_file(filename):
     # Security: only allow files matching the expected pattern
-    if not (filename.startswith('aladin_adriacenter_') and filename.endswith('.grb2')):
+    if not (filename.startswith('aladin_adriacenter_') and filename.endswith('.grb')):
         abort(404, description="File not found")
     
     path = os.path.join(DATA_DIR, filename)

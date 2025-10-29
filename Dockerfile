@@ -1,19 +1,32 @@
-# Use the dtgeo/meteo-gfs-linux-alpine-wgrib2 image
-FROM dtgeo/meteo-gfs-linux-alpine-wgrib2:latest
+FROM ubuntu:22.04
 
-# Configure APK repos (optional but safer)
-RUN echo "http://dl-cdn.alpinelinux.org/alpine/v3.20/main" > /etc/apk/repositories && \
-    echo "http://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories
+# Avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install required packages
-RUN apk update && apk add --no-cache \
-    bash python3 py3-pip py3-flask curl gzip bzip2 coreutils ca-certificates dcron gawk \
-    py3-requests py3-beautifulsoup4
+# Install CDO with all projection support
+RUN apt-get update && apt-get install -y \
+    cdo \
+    libeccodes-tools \
+    ncview \
+    nco \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install system packages and Python 3 pip
+RUN apt-get update && apt-get install -y \
+    cron \
+    python3-pip && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Python libraries
+RUN pip3 install --no-cache-dir \
+    flask \
+    requests \
+    beautifulsoup4
 
 # Set working directory
 WORKDIR /app
 
-# Copy your application files
+# Copy application files
 COPY load_and_merge_gribs.py server.py start.sh process.cron /app/
 RUN chmod +x /app/*.sh /app/*.py
 
