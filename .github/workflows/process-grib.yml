@@ -55,6 +55,15 @@ jobs:
 
           This branch (`gh-pages`) is automatically generated and contains processed GRIB files from the ALADIN weather model.
 
+          ## Latest Update
+          
+          EOF
+          
+          echo "**Last processed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
+          echo "" >> README.md
+          
+          cat >> README.md <<- 'EOF'
+          
           ## About This Data
           
           - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
@@ -67,36 +76,11 @@ jobs:
             - Wind Speed and Direction at 10m
             - Wind Gusts (u/v components)
             - Temperature at 2m
-          
-          ## Latest Update
-          
-          EOF
-          
-          echo "**Last processed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
-          echo "" >> README.md
-          
-          cat >> README.md <<- 'EOF'
-
-          ## How This Works
-          
-          This repository uses GitHub Actions to:
-          
-          1. **Download** the latest ALADIN model data from CHMI every hour
-          2. **Process** the GRIB files using CDO (Climate Data Operators):
-             - Reproject from Lambert conformal to regular lat-lon grid
-             - Subset to Adriatic region bounding box
-             - Merge multiple variables into single file
-          3. **Publish** to this `gh-pages` branch for public access
-          
-          ### Data Source
-          
-          Original data: [CHMI Open Data Portal](https://opendata.chmi.cz/meteorology/weather/nwp_aladin/Lambert_2.3km/)
-          
+                    
           ## Usage
           
-          Download files directly:
+          Download files here or get the latest run directly:
           ```bash
-          # Latest file
           wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb2
           ```
           EOF
