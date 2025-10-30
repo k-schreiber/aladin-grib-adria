@@ -49,6 +49,7 @@ jobs:
 
       - name: Create README
         run: |
+          cd data
           cat > README.md <<- 'EOF'
           # ALADIN Adria GRIB Files
 
