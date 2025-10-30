@@ -44,8 +44,38 @@ fly deploy --image aladin-grib-adria --app aladin-grib-adria
 Then access:
 https://aladin-grib-adria.fly.dev/aladin_adriacenter_latest.grb
 
+## Run Via GitHub Actions
 
-## Weather Parameter Descriptions
+A workflow is set up to run every hour to download, process, and publish the latest data
+to the `gh-pages` branch of this repository.
+
+This requires no server setup and makes sure to process new published weather data
+from CHMI automatically within one hour.
+
+## About This Data
+          
+- **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
+- **Model**: ALADIN Lambert 2.3km grid
+- **Region**: Central Adriatic Sea (13.0-17.5°E, 42.5-44.5°N)
+- **Resolution**: 0.02° (~2.2 km) regular lat-lon grid
+- **Update frequency**: Roughly every 6 hours by CHMI, processed here within 1 hour
+- **Variables included**:
+  - Mean Sea Level Pressure (MSLP)
+  - Wind Speed and Direction at 10m
+  - Wind Gusts (u/v components)
+  - Temperature at 2m
+
+## How It Works
+
+1. **Download** the latest ALADIN model data from CHMI every hour
+2. **Process** the GRIB files using CDO:
+   - Reproject from Lambert to regular lat-lon grid
+   - Subset to Adriatic region bounding box
+   - Merge multiple variables into single file
+3. **Publish** to this `gh-pages` branch for public access
+          
+
+## Full Weather Parameter Descriptions
 Project is based on CHMI weather data. Original data, parameter list and descriptions can be found at:
 https://opendata.chmi.cz/meteorology/weather/nwp_aladin/
 
