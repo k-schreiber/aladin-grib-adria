@@ -81,7 +81,7 @@ jobs:
           
           Download files here or get the latest run directly:
           ```bash
-          wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb2
+          wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb
           ```
           EOF
 
