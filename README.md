@@ -4,7 +4,7 @@ This branch (`gh-pages`) is automatically generated and contains processed GRIB 
 
 ## Latest Update
 
-**Last processed**: 2025-10-30 09:29:13 UTC
+**Last processed**: 2025-10-30 10:28:34 UTC
 
 
 ## About This Data
@@ -24,5 +24,5 @@ This branch (`gh-pages`) is automatically generated and contains processed GRIB 
 
 Download files here or get the latest run directly:
 ```bash
-wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb2
+wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb
 ```
