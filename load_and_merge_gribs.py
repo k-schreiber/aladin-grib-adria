@@ -160,6 +160,12 @@ def download_latest_files(latest_dir, timestamp):
             if os.path.exists(local_path):
                 downloaded_files.append(local_path)
 
+    if len(downloaded_files) != len(VARS):
+        raise Exception(
+            f"Incomplete download: expected {len(VARS)} files, got {len(downloaded_files)}. "
+            "Files may still be uploading at CHMI."
+        )
+
     return downloaded_files
 
 
@@ -239,11 +245,13 @@ def merge_gribs(grib_files, timestamp):
         print(f"✗ Merge failed: {e.stderr}")
         raise
 
-    # Create symlink to latest
+    # Atomically update symlink to latest (avoids brief window where link is missing)
     latest_link = os.path.join(OUTDIR, "aladin_adriacenter_latest.grb")
-    if os.path.exists(latest_link) or os.path.islink(latest_link):
-        os.remove(latest_link)
-    os.symlink(os.path.basename(outfile), latest_link)
+    tmp_link = latest_link + ".tmp"
+    if os.path.islink(tmp_link):
+        os.remove(tmp_link)
+    os.symlink(os.path.basename(outfile), tmp_link)
+    os.rename(tmp_link, latest_link)
 
     # Cleanup old run directories (keep last 3)
     cleanup_old_runs()
