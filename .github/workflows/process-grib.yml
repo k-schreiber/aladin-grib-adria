@@ -6,7 +6,62 @@ on:
   workflow_dispatch:  # Manual trigger
 
 jobs:
-  process-grib:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_process: ${{ steps.decide.outputs.should_process }}
+      timestamp: ${{ steps.checker.outputs.timestamp }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build checker image
+        run: |
+          docker buildx build \
+            --file Dockerfile.checker \
+            --tag aladin-checker:latest \
+            --cache-from type=gha,scope=checker \
+            --cache-to type=gha,mode=max,scope=checker \
+            --load \
+            .
+
+      - name: Run availability check
+        id: checker
+        run: |
+          ts=$(docker run --rm aladin-checker:latest 2>/tmp/checker.log) && rc=0 || rc=$?
+          cat /tmp/checker.log
+          echo "timestamp=${ts}" >> $GITHUB_OUTPUT
+
+      - name: Check if already processed
+        id: cache_check
+        if: steps.checker.outputs.timestamp != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .processed-marker
+          key: processed-${{ steps.checker.outputs.timestamp }}
+          lookup-only: true
+
+      - name: Decide whether to process
+        id: decide
+        run: |
+          if [ -z "${{ steps.checker.outputs.timestamp }}" ]; then
+            echo "should_process=false" >> $GITHUB_OUTPUT
+            echo "No new complete data available."
+          elif [ "${{ steps.cache_check.outputs.cache-hit }}" == "true" ]; then
+            echo "should_process=false" >> $GITHUB_OUTPUT
+            echo "Timestamp ${{ steps.checker.outputs.timestamp }} already processed."
+          else
+            echo "should_process=true" >> $GITHUB_OUTPUT
+            echo "Will process: ${{ steps.checker.outputs.timestamp }}"
+          fi
+
+  process:
+    needs: check
+    if: needs.check.outputs.should_process == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -16,8 +71,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        run: docker build -t aladin-processor .
+      - name: Build processor image
+        run: |
+          docker buildx build \
+            --file Dockerfile \
+            --tag aladin-processor:latest \
+            --cache-from type=gha,scope=processor \
+            --cache-to type=gha,mode=max,scope=processor \
+            --load \
+            .
 
       - name: Create data directory
         run: mkdir -p data
@@ -27,7 +89,7 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}/data:/data \
             -e OUTDIR=/data \
-            aladin-processor \
+            aladin-processor:latest \
             python3 /app/load_and_merge_gribs.py
         timeout-minutes: 30
 
@@ -56,16 +118,16 @@ jobs:
           This branch (`gh-pages`) is automatically generated and contains processed GRIB files from the ALADIN weather model.
 
           ## Latest Update
-          
+
           EOF
-          
+
           echo "**Last processed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
           echo "" >> README.md
-          
+
           cat >> README.md <<- 'EOF'
-          
+
           ## About This Data
-          
+
           - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
           - **Model**: ALADIN Lambert 2.3km grid
           - **Region**: Adriatic Sea (13.0-17.5°E, 42.5-44.5°N)
@@ -76,9 +138,9 @@ jobs:
             - Wind Speed and Direction at 10m
             - Wind Gusts (u/v components)
             - Temperature at 2m
-                    
+
           ## Usage
-          
+
           Download files here or get the latest run directly:
           ```bash
           wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb
@@ -93,3 +155,12 @@ jobs:
           keep_files: false
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Save processed marker
+        run: echo "${{ needs.check.outputs.timestamp }}" > .processed-marker
+
+      - name: Cache processed marker
+        uses: actions/cache/save@v4
+        with:
+          path: .processed-marker
+          key: processed-${{ needs.check.outputs.timestamp }}
