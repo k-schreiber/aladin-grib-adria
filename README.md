@@ -46,11 +46,14 @@ https://aladin-grib-adria.fly.dev/aladin_adriacenter_latest.grb
 
 ## Run Via GitHub Actions
 
-A workflow is set up to run every hour to download, process, and publish the latest data
-to the `gh-pages` branch of this repository.
+A workflow runs every hour and publishes the latest data to the `gh-pages` branch.
+No server setup required.
 
-This requires no server setup and makes sure to process new published weather data
-from CHMI automatically within one hour.
+The pipeline has two jobs:
+
+1. **check** — a lightweight Alpine-based container runs `check_availability.py`, which scrapes the CHMI OpenData directory and verifies that all 6 required variables for the latest model run (00/06/12/18 UTC) are present. If the timestamp has already been processed (cached in GitHub Actions cache), the job exits early and the second job is skipped entirely.
+
+2. **process** — only runs when `check` reports new data. Builds the full processor image, downloads and processes the GRIB files, and force-pushes a single-commit orphan to `gh-pages`.
 
 ## About This Data
           
@@ -67,12 +70,13 @@ from CHMI automatically within one hour.
 
 ## How It Works
 
-1. **Download** the latest ALADIN model data from CHMI every hour
-2. **Process** the GRIB files using CDO:
+1. **Check** a lightweight Alpine container (`check_availability.py`) scrapes the CHMI OpenData directory and verifies all 6 required variables are present for the latest model run. If the timestamp is already cached, processing is skipped entirely.
+2. **Download** the latest ALADIN model data from CHMI every hour
+3. **Process** the GRIB files using CDO:
    - Reproject from Lambert to regular lat-lon grid
    - Subset to Adriatic region bounding box
    - Merge multiple variables into single file
-3. **Publish** to this `gh-pages` branch for public access
+4. **Publish** to this `gh-pages` branch for public access
           
 
 ## Full Weather Parameter Descriptions
