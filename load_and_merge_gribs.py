@@ -191,12 +191,16 @@ def merge_gribs(grib_files, timestamp):
 
         print(f"Processing {base}...")
 
+        # Wind direction is circular (0-360°): bilinear interpolation corrupts values near
+        # the 0°/360° wrap-around. Use nearest-neighbour instead.
+        remap_op = "remapnn" if "CLSWIND_DIREC" in base else "remapbil"
+
         # CDO: Remap to target grid and cut to bounding box in one command
         # Using -s flag to suppress CDO output for cleaner logs
         cmd = [
             "cdo", "-s",
             "sellonlatbox,{},{},{},{}".format(LON_MIN, LON_MAX, LAT_MIN, LAT_MAX),
-            "-remapbil,{}".format(grid_file),
+            "-{},{}".format(remap_op, grid_file),
             grib_file,
             processed_file
         ]
@@ -215,7 +219,7 @@ def merge_gribs(grib_files, timestamp):
             try:
                 temp_file = processed_file + ".temp"
                 # Step 1: Remap
-                subprocess.run(["cdo", "-s", "remapbil,{}".format(grid_file), grib_file, temp_file],
+                subprocess.run(["cdo", "-s", "{},{}".format(remap_op, grid_file), grib_file, temp_file],
                                check=True, capture_output=True)
                 # Step 2: Cut
                 subprocess.run(["cdo", "-s", "sellonlatbox,{},{},{},{}".format(LON_MIN, LON_MAX, LAT_MIN, LAT_MAX),
