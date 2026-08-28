@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import subprocess
+import time
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -111,62 +112,66 @@ def download_file_with_progress(url, local_path):
 
 
 def download_latest_files(latest_dir, timestamp):
-    """Download files for the latest timestamp"""
+    """Download files for the latest timestamp, retrying if CHMI's listing is temporarily incomplete."""
     run_url = f"{BASE_URL}{latest_dir}/"
-
-    try:
-        resp = requests.get(run_url, timeout=30)
-        if resp.status_code != 200:
-            raise Exception(f"Failed to list files from {run_url}")
-    except requests.RequestException as e:
-        raise Exception(f"Error accessing {run_url}: {e}")
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    links = [a.get("href") for a in soup.find_all("a") if a.get("href")]
+    max_retries = 3
+    retry_delay = 180  # seconds between retries
 
     downloaded_files = []
+    for attempt in range(max_retries):
+        if attempt > 0:
+            print(f"Waiting {retry_delay // 60} min before retry {attempt}/{max_retries - 1}...")
+            time.sleep(retry_delay)
 
-    for var_code in VARS.keys():
-        # Find the first matching file for this variable
-        matching_file = None
-        for link in links:
-            if f"ALADLAMB4opendata_{timestamp}_{var_code}" in link:
-                matching_file = link
-                break
+        try:
+            resp = requests.get(run_url, timeout=30)
+            if resp.status_code != 200:
+                raise Exception(f"Failed to list files from {run_url}")
+        except requests.RequestException as e:
+            raise Exception(f"Error accessing {run_url}: {e}")
 
-        if matching_file:
-            local_path = os.path.join(WORKDIR, matching_file)
-            decompressed_path = local_path[:-4] if local_path.endswith(".bz2") else local_path
+        links = [a.get("href") for a in BeautifulSoup(resp.text, "html.parser").find_all("a") if a.get("href")]
+        downloaded_files = []
 
-            # Check if decompressed file already exists
-            if os.path.exists(decompressed_path):
-                print(f"File already exists: {os.path.basename(decompressed_path)}")
-                downloaded_files.append(decompressed_path)
-                continue
+        for var_code in VARS.keys():
+            matching_file = None
+            for link in links:
+                if f"ALADLAMB4opendata_{timestamp}_{var_code}" in link:
+                    matching_file = link
+                    break
 
-            # Download if not exists
-            if not os.path.exists(local_path):
-                url = f"{run_url}{matching_file}"
-                if not download_file_with_progress(url, local_path):
+            if matching_file:
+                local_path = os.path.join(WORKDIR, matching_file)
+                decompressed_path = local_path[:-4] if local_path.endswith(".bz2") else local_path
+
+                if os.path.exists(decompressed_path):
+                    print(f"File already exists: {os.path.basename(decompressed_path)}")
+                    downloaded_files.append(decompressed_path)
                     continue
 
-            # Decompress if .bz2
-            if local_path.endswith(".bz2"):
+                if not os.path.exists(local_path):
+                    url = f"{run_url}{matching_file}"
+                    if not download_file_with_progress(url, local_path):
+                        continue
+
+                if local_path.endswith(".bz2"):
+                    if os.path.exists(local_path):
+                        print(f"Decompressing {os.path.basename(local_path)}...")
+                        subprocess.run(["bzip2", "-df", local_path], check=True)
+                        local_path = decompressed_path
+
                 if os.path.exists(local_path):
-                    print(f"Decompressing {os.path.basename(local_path)}...")
-                    subprocess.run(["bzip2", "-df", local_path], check=True)
-                    local_path = decompressed_path
+                    downloaded_files.append(local_path)
 
-            if os.path.exists(local_path):
-                downloaded_files.append(local_path)
+        if len(downloaded_files) == len(VARS):
+            return downloaded_files
 
-    if len(downloaded_files) != len(VARS):
-        raise Exception(
-            f"Incomplete download: expected {len(VARS)} files, got {len(downloaded_files)}. "
-            "Files may still be uploading at CHMI."
-        )
+        print(f"Attempt {attempt + 1}/{max_retries}: got {len(downloaded_files)}/{len(VARS)} files from CHMI.")
 
-    return downloaded_files
+    raise Exception(
+        f"Incomplete after {max_retries} attempts: expected {len(VARS)} files, "
+        f"got {len(downloaded_files)}. CHMI upload appears stuck."
+    )
 
 
 def merge_gribs(grib_files, timestamp):
