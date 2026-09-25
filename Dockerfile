@@ -21,13 +21,15 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --no-cache-dir \
     flask \
     requests \
-    beautifulsoup4
+    beautifulsoup4 \
+    numpy \
+    matplotlib
 
 # Set working directory
 WORKDIR /app
 
 # Copy application files
-COPY load_and_merge_gribs.py server.py start.sh process.cron /app/
+COPY load_and_merge_gribs.py server.py start.sh process.cron adriatic_coastline.json /app/
 RUN chmod +x /app/*.sh /app/*.py
 
 # Install crontab
