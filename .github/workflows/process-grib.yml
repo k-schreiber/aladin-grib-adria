@@ -110,6 +110,8 @@ jobs:
           cat index.html
 
       - name: Create README
+        env:
+          TIMESTAMP: ${{ needs.check.outputs.timestamp }}
         run: |
           cd data
           cat > README.md <<- 'EOF'
@@ -123,6 +125,16 @@ jobs:
 
           echo "**Last processed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
           echo "" >> README.md
+
+          # Reference the timestamped file, not the aladin_wind_latest.png symlink:
+          # README images are fetched via raw.githubusercontent.com, which serves a
+          # symlink's literal target-path text rather than following it, so a
+          # symlinked image would render broken.
+          wind_png="aladin_wind_${TIMESTAMP}.png"
+          if [ -f "$wind_png" ]; then
+            echo "![Latest ALADIN wind forecast]($wind_png)" >> README.md
+            echo "" >> README.md
+          fi
 
           cat >> README.md <<- 'EOF'
 
