@@ -291,8 +291,15 @@ def merge_gribs(grib_files, timestamp):
 
 def read_grid_values(grib_file, nx, ny):
     """Dump a single-variable GRIB file's values via CDO, in the target grid's
-    native order (x fastest, y from yfirst/south to north), and reshape to (ny, nx)."""
-    result = subprocess.run(["cdo", "-s", "output", grib_file], check=True, capture_output=True, text=True)
+    native order (x fastest, y from yfirst/south to north), and reshape to (ny, nx).
+
+    These files carry a full forecast time series (one record per lead time), not
+    a single field, so select the first timestep (the run's T+0 analysis) to get
+    one 2D snapshot for the "current" wind map."""
+    result = subprocess.run(
+        ["cdo", "-s", "output", "-seltimestep,1", grib_file],
+        check=True, capture_output=True, text=True,
+    )
     values = np.array([float(v) for v in result.stdout.split()], dtype=float)
     if values.size != nx * ny:
         raise Exception(f"Unexpected value count from {grib_file}: {values.size} (expected {nx * ny})")
