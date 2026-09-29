@@ -1,6 +1,23 @@
 # aladin-grib-adria
 
-Automated downloader, cutter, reprojection, and merger of CHMI Aladin 2.3km GRIB files for the central Adriatic.
+Automated downloader, cutter, reprojection, and merger of CHMI Aladin 2.3km GRIB files for the central Adriatic. Reads publicly availabe CHMI weather data, and generates usable grib files for a defined bounding box in the central adriatic.
+
+![GRIB file based wind map in the central adriatic](aladin_wind_example.png "Rendered Example of the bounding box and wind map")
+
+## Run Via GitHub Actions
+
+A workflow runs every hour and publishes the latest data to the `gh-pages` branch.
+No server setup required.
+
+The pipeline has two jobs:
+
+1. **check** — a lightweight Alpine-based container runs `check_availability.py`, which scrapes the CHMI OpenData directory and verifies that all 6 required variables for the latest model run (00/06/12/18 UTC) are present. If the timestamp has already been processed, the job exits early and the second job is skipped.
+
+2. **process** — only runs when `check` reports new data. Builds the full processor image, downloads and processes the GRIB files, renders a static wind map, and force-pushes a single-commit orphan to `gh-pages`.
+
+## Wind Map
+
+Each processing run renders a static PNG of 10m wind speed and direction over the Adriatic bounding box, with a coastline overlay (clipped from Natural Earth 10m coastline data, bundled in [`adriatic_coastline.json`](adriatic_coastline.json)). It's generated with CDO + matplotlib and embedded directly in the [`gh-pages` README](https://github.com/k-schreiber/aladin-grib-adria/tree/gh-pages).
 
 
 ## Run locally
@@ -43,24 +60,6 @@ fly deploy --image aladin-grib-adria --app aladin-grib-adria
 ```
 Then access:
 https://aladin-grib-adria.fly.dev/aladin_adriacenter_latest.grb
-
-## Run Via GitHub Actions
-
-A workflow runs every hour and publishes the latest data to the `gh-pages` branch.
-No server setup required.
-
-The pipeline has two jobs:
-
-1. **check** — a lightweight Alpine-based container runs `check_availability.py`, which scrapes the CHMI OpenData directory and verifies that all 6 required variables for the latest model run (00/06/12/18 UTC) are present. If the timestamp has already been processed (cached in GitHub Actions cache), the job exits early and the second job is skipped entirely.
-
-2. **process** — only runs when `check` reports new data. Builds the full processor image, downloads and processes the GRIB files, renders a static wind map, and force-pushes a single-commit orphan to `gh-pages`.
-
-## Wind Map
-
-Each processing run also renders a static PNG of 10m wind speed (colour) and direction (arrows) over the Adriatic bounding box, with a coastline overlay (clipped from Natural Earth 10m coastline data, bundled in [`adriatic_coastline.json`](adriatic_coastline.json)). It's generated with CDO + matplotlib — no new GRIB-reading dependency — and embedded directly in the [`gh-pages` README](https://github.com/k-schreiber/aladin-grib-adria/tree/gh-pages), which GitHub renders when browsing that branch.
-
-- Latest: `aladin_wind_latest.png`
-- Per-run: `aladin_wind_<timestamp>.png`
 
 ## About This Data
           
