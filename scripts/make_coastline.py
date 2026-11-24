@@ -20,6 +20,11 @@ MARGIN = 0.5  # degrees around the region, so lines reach past every map and gri
 OUT = os.path.join(ROOT, "adriatic_coastline.json")
 
 
+def clip_box():
+    """(west, east, south, north) the coastline is clipped to: the region plus MARGIN."""
+    return (LON_MIN - MARGIN, LON_MAX + MARGIN, LAT_MIN - MARGIN, LAT_MAX + MARGIN)
+
+
 def clip(lines, west, east, south, north):
     """Keep the runs of consecutive points inside the box; split a line wherever it leaves it."""
     segments = []
@@ -57,7 +62,7 @@ def main():
         elif geom["type"] == "MultiLineString":
             lines.extend(geom["coordinates"])
 
-    box = (LON_MIN - MARGIN, LON_MAX + MARGIN, LAT_MIN - MARGIN, LAT_MAX + MARGIN)
+    box = clip_box()
     segments = clip(lines, *box)
     with open(OUT, "w") as f:
         json.dump(segments, f, separators=(",", ":"))

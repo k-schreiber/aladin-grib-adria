@@ -61,6 +61,14 @@ fly deploy --image aladin-grib-adria --app aladin-grib-adria
 Then access:
 https://aladin-grib-adria.fly.dev/aladin_adriacenter_latest.grb
 
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
+
+The tests use only the standard library and run on every pull request.
+
 ## About This Data
           
 - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
