@@ -61,11 +61,19 @@ fly deploy --image aladin-grib-adria --app aladin-grib-adria
 Then access:
 https://aladin-grib-adria.fly.dev/aladin_adriacenter_latest.grb
 
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
+
+The tests use only the standard library and run on every pull request.
+
 ## About This Data
           
 - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
 - **Model**: ALADIN Lambert 2.3km grid
-- **Region**: Central Adriatic Sea (13.0-17.5°E, 42.5-44.5°N)
+- **Region**: Central Adriatic Sea (13.0-17.5°E, 42.5-45.4°N)
 - **Resolution**: 0.02° (~2.2 km) regular lat-lon grid
 - **Update frequency**: Roughly every 6 hours by CHMI, processed here within 1 hour
 - **Variables included**:

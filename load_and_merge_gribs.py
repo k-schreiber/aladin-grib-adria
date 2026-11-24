@@ -11,19 +11,13 @@ import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
 from datetime import datetime
 
+from region import LON_MIN, LON_MAX, LAT_MIN, LAT_MAX, DX, DY, NX, NY
+
 # ---------------- CONFIG ----------------
 BASE_URL = "https://opendata.chmi.cz/meteorology/weather/nwp_aladin/Lambert_2.3km/"
 RUN_DIRS = ["00", "06", "12", "18"]
 WORKDIR = "/tmp/aladin"
 OUTDIR = os.getenv("OUTDIR", "/data")
-
-# Bounding box for Adria region
-LON_MIN = 13.0
-LON_MAX = 17.5
-LAT_MIN = 42.5
-LAT_MAX = 44.5
-DX = 0.02
-DY = 0.02
 
 # Variables to download
 VARS = {
@@ -45,13 +39,11 @@ COASTLINE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adria
 def create_target_grid():
     """Create CDO grid definition file"""
     grid_file = os.path.join(WORKDIR, "adriatic_grid.txt")
-    nx = int((LON_MAX - LON_MIN) / DX) + 1
-    ny = int((LAT_MAX - LAT_MIN) / DY) + 1
 
     with open(grid_file, "w") as f:
         f.write(f"gridtype = lonlat\n")
-        f.write(f"xsize = {nx}\n")
-        f.write(f"ysize = {ny}\n")
+        f.write(f"xsize = {NX}\n")
+        f.write(f"ysize = {NY}\n")
         f.write(f"xfirst = {LON_MIN}\n")
         f.write(f"xinc = {DX}\n")
         f.write(f"yfirst = {LAT_MIN}\n")
@@ -323,14 +315,13 @@ def render_wind_map(processed_by_var, timestamp):
     if "CLSWIND_SPEED" not in processed_by_var or "CLSWIND_DIREC" not in processed_by_var:
         raise Exception("Wind speed/direction not available for rendering")
 
-    nx = int((LON_MAX - LON_MIN) / DX) + 1
-    ny = int((LAT_MAX - LAT_MIN) / DY) + 1
+    nx, ny = NX, NY
 
     speed = read_grid_values(processed_by_var["CLSWIND_SPEED"], nx, ny)
     direction = read_grid_values(processed_by_var["CLSWIND_DIREC"], nx, ny)
 
-    lons = np.linspace(LON_MIN, LON_MAX, nx)
-    lats = np.linspace(LAT_MIN, LAT_MAX, ny)
+    lons = LON_MIN + DX * np.arange(nx)
+    lats = LAT_MIN + DY * np.arange(ny)
 
     # Meteorological convention: direction is where the wind comes FROM.
     theta = np.deg2rad(direction)
