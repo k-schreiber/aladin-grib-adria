@@ -48,6 +48,7 @@ After a dry run, download the `site` artifact and run `grib_validate.py` on both
 | `ModuleNotFoundError` for a project module in the container | file missing from the `COPY` line | `Dockerfile`; same test |
 | numpy / matplotlib import error | the pip pins clash again (copernicusmarine needs numpy 2, so matplotlib must be 3.10) | the build-time import check in the `Dockerfile` should fail the build first |
 | published wind and water runs differ | one job failed earlier and was not yet retried | status block on the page |
+| `publish` fails at "Check whether a published site exists" or the `gh-pages` checkout | GitHub could not be reached; nothing was deployed and no marker saved | re-run the workflow |
 
 ## Routine maintenance
 
@@ -57,6 +58,8 @@ After a dry run, download the `site` artifact and run `grib_validate.py` on both
 - **CHMI layout.** Directory names, file names and the variable list are hard-coded in `check_availability.py` and `load_and_merge_gribs.py`.
 
 ## Checklists
+
+**After merging a change that alters the wind grid** (or any change that must reach the published wind file): the wind marker of the current run still exists, so the old file stays until the next ALADIN run. Run once with `force`.
 
 **Change the region** (`region.py`): keep the box a whole number of 0.02° steps (the module raises otherwise); run `python3 scripts/make_coastline.py`; check that ALADIN covers the box (remap onto the grid, count missing points) and that the Copernicus lattice has points in it; update sizes in [grib-format.md](grib-format.md) if you publish them; run the tests; after merging run once with `force`. The coastline, grid, validators, README text and pages all follow `region.py`.
 

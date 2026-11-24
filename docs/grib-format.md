@@ -16,7 +16,7 @@ All times are UTC.
 - **Both files use the same reference time and steps for one run.** Example: run 2026112318 gives valid times 2026-11-23 18:00 (step 0) to 2026-11-26 18:00 (step 72).
 - **CHMI side.** The timestamp in a CHMI file name is the model run. Each source file holds 73 hourly steps (checked: 1,666,298 values = 73 x 22,826 grid points; the merged GRIB's step 72 is valid 2026-11-26 18:00 for run 2026-11-23 18:00).
 - **Copernicus side.** The window `[run, run + 72 h]` is requested from the hourly series, whose time stamps fall exactly on the hour (checked). Currents are **hourly means centred on the stamp** (NetCDF attribute `field_type = hourly_mean_centered_at_time_field`), waves are **instantaneous**. Both are written with time range indicator 0, i.e. a mean over the hour 17:30-18:30 is labelled 18:00 like an instantaneous field. The data are Copernicus' best estimate for those hours: the analysis for past hours and the latest forecast for later ones; which forecast cycle that is depends on when the job runs (`data_updated_utc` in `marine_meta.json` records the dataset update time; it is not part of the GRIB).
-- **CDO versions encode time differently.** The container's CDO 2.0.4 writes time range indicator 0 with a one-octet `P1`; newer CDO (checked: 2.6.6) writes indicator 10 with a two-octet step. The validator reads eccodes' derived `step` key and accepts both for the wind file.
+- **The time encoding differs between sources and CDO versions.** CHMI's raw files use time range indicator 1 at step 0 and 10 for later steps (`P1` = 0, `P2` = step; with indicator 10 the step is `P1*256 + P2`, and eccodes reports it as `step`). The container's CDO 2.0.4 rewrites **every** step as indicator 0 with `P1` = step (this is what is published, checked); newer CDO (checked: 2.6.6) keeps indicator 10 with `P1` = 0 and `P2` = step. The validator reads eccodes' derived `step` key and accepts indicator 0 and 10 for the wind file.
 
 ## 2. Region and grids
 
@@ -42,7 +42,7 @@ Both datasets share this grid to within 2e-6° (the wave grid's last longitude i
 
 **Stored corners** are rounded to whole millidegrees by GRIB1 (42.5208 -> 42.521, 45.3958 -> 45.396); the validator allows 2e-3° (`CORNER_TOLERANCE`).
 
-**Grid increments.** GRIB1 stores increments in whole millidegrees, which cannot hold 1/24° (41.667 mdeg, stored as 42). The water file therefore sets `iDirectionIncrementGiven = jDirectionIncrementGiven = 0` and the increment octets to "missing" (0xFFFF); readers derive the spacing from the corners. Measured decoded position error (eccodes): about 0.06 km this way, up to about 2.5 km if the rounded 0.042 were stored (variant A in the history in [decisions.md](decisions.md)). The wind grid (0.02° = 20 mdeg) stores its increments normally.
+**Grid increments.** GRIB1 stores increments in whole millidegrees, which cannot hold 1/24° (41.667 mdeg, stored as 42). The water file therefore sets `iDirectionIncrementGiven = jDirectionIncrementGiven = 0` and the increment octets to "missing" (0xFFFF); readers derive the spacing from the corners. Measured decoded position error (eccodes, final grid): about 0.02 km this way (the 1 mdeg rounding of the corners); about 2.5 km in latitude if the rounded 0.042 were stored (variant A in [decisions.md](decisions.md)), and a reader that applied the stored longitude increment would be off by up to about 2.8 km. The wind grid (0.02° = 20 mdeg) stores its increments normally.
 
 ## 3. Header contract
 
@@ -51,13 +51,13 @@ Both datasets share this grid to within 2e-6° (the wave grid's last longitude i
 | edition | 1 | 1 |
 | `centre` / `subCentre` / `table2Version` / `generatingProcessIdentifier` / `gridDefinition` | 89 / 0 / 1 / 2 / 255 | 89 / 0 / 1 / 2 / 255 (same as the wind file, so viewers treat them alike) |
 | `dataDate`, `dataTime` | run | run |
-| `stepUnits` / `P1` / `P2` / `timeRangeIndicator` | 1 / step / 0 / 0 (CDO 2.0.4) or 10 (newer CDO) | 1 / step / 0 / 0 |
+| `stepUnits` / `P1` / `P2` / `timeRangeIndicator` | 1 / step / 0 / 0 (CDO 2.0.4, published); newer CDO: 1 / 0 / step / 10 | 1 / step / 0 / 0 |
 | grid | `regular_ll` 226 x 146 | `regular_ll` 109 x 70 |
 | `resolutionAndComponentFlags` | 136 (increments given) | 0 (increments not given) |
 | packing | 12 bits/value, no bitmap | 12 bits/value, **bitmap** (land = missing, value 9999 inside the encoder only) |
 | messages | 438 = 6 parameters x 73 steps | 803 = 11 parameters x 73 steps |
 
-Message order: parameter by parameter, steps ascending (water file: order of `marine_grib.FIELDS`).
+Message order: **wind file: step by step** (CDO `merge` interleaves the variables: for each step the parameters 2, 31, 32, 130, 131, 11, i.e. the order of `VARS`; checked on the published file and the CI-built file). **Water file: parameter by parameter**, steps ascending, in the order of `marine_grib.FIELDS`. Readers must not depend on either order; the validator does not.
 
 ## 4. Parameters
 
@@ -68,11 +68,11 @@ Message order: parameter by parameter, steps ascending (water file: order of `ma
 | 2 | 102 (mean sea level) / 0 | `MSLPRESSURE` | mean sea level pressure | Pa |
 | 31 | 105 (height above ground) / 10 m | `CLSWIND_DIREC` | wind direction, **from** | degrees |
 | 32 | 105 / 10 m | `CLSWIND_SPEED` | wind speed | m/s |
-| 130 | 105 / 0 | `CLSU_RAF_MOD_XFU` *(inferred)* | gust, u component (maximum in the next hour) | m/s |
-| 131 | 105 / 0 | `CLSV_RAF_MOD_XFU` *(inferred)* | gust, v component | m/s |
+| 130 | 105 / 0 | `CLSU_RAF_MOD_XFU` *(inferred)* | gust, u component *(period not verified, see below)* | m/s |
+| 131 | 105 / 0 | `CLSV_RAF_MOD_XFU` *(inferred)* | gust, v component *(period not verified)* | m/s |
 | 11 | 105 / 2 m | `CLSTEMPERATURE` | 2 m temperature | K |
 
-130/131 are not WMO parameters (CHMI local codes); their mapping to the gust variables follows from the variable list and was not independently verified. Gust fields are "maximum in the next hour" but carry time range indicator 0 like the others.
+130/131 are not WMO parameters (CHMI local codes); their mapping to the gust variables follows from the variable list and was not independently verified. CHMI's parameter list (copied in the README) describes the gusts as "maximum wind gust in next 1h". **That was not verified:** the raw CHMI headers of the gust files say `stepType instant` (indicator 1 at step 0, 10 afterwards) and say nothing about a maximum or its period, and the published GRIB carries indicator 0 like every other field. Whether a gust at step n is the maximum over the hour before or after is therefore unknown; treat it as "a gust estimate valid around that hour".
 
 ### Water file (ground truth; `marine_grib.FIELDS`)
 
@@ -90,8 +90,8 @@ Codes are NCEP GRIB1 table 2 (confirmed by eccodes for the wave names; eccodes h
 
 ## 5. Packing, missing values, precision
 
-- 12 bits per value. Quantisation step = (field maximum - minimum) / 4096 within a message; measured round-trip errors: currents 1.2e-4 m/s, heights 4.8e-4 m, periods 1e-3 to 2e-3 s, directions 0.06°.
-- **Direction overshoot:** decoded directions can exceed 360 by up to 0.04° (marine 360.04, published wind 360.002). Validators accept -0.5..360.5; consumers must wrap.
+- 12 bits per value (simple packing). Within one message the quantisation step is the smallest power of two that is at least `(maximum - minimum) / 4095`, and the decoding error is at most half a step. Measured round-trip errors: currents 1.2e-4 m/s, heights 4.8e-4 m, periods 1e-3 to 2e-3 s, directions 0.06°.
+- **Direction overshoot:** for directions (range about 360) the step is 0.125°, so a decoded value can exceed the true maximum by up to 0.0625°; observed: marine 360.04, published wind 360.002. Validators accept -0.5..360.5; consumers must wrap.
 - **Missing values:** the water file has a bitmap; a point is missing for land (about 51 % of the grid, static, identical in every step and field). The validator recognises missing points **only where a bitmap exists**: wind pressure (about 101,325 Pa) is far above the 9999 marker used inside the encoder.
 - A constant field packs with 0 bits (legal).
 

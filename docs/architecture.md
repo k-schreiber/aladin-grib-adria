@@ -50,7 +50,7 @@ The only thing `wind` and `marine` share is the **trigger**: the run found by `c
 1. **Independent flows.** `wind` and `marine` have no dependency on each other; one failing never stops the other.
 2. **Always a valid file.** `publish` replaces a published file only by a new, validated one; otherwise the previous file stays and the page says so.
 3. **One time frame.** Both files use the run as reference time and steps 0-72 ([grib-format.md](grib-format.md)).
-4. **One definition of the region.** `region.py` is the only place that holds the box; grids, sizes, validators and texts derive from it.
+4. **One definition of the region.** `region.py` is the only place that holds the box; grids, sizes, validators, the coastline generator and the region texts derive from it. (The two Copernicus DOIs are written in both `build_site.py` and `marine_grib.py`; a test keeps them equal.)
 5. **Validate before publishing.** A new file that fails `grib_validate.py` counts as a failed job.
 6. **One image.** Both jobs run the same Docker image; an install problem affects both.
 7. **No secret outside the marine job.** Credentials are passed by name into one `docker run`.
@@ -64,6 +64,7 @@ The only thing `wind` and `marine` share is the **trigger**: the run found by `c
 | marine job fails (credentials, outage, Copernicus change) | new | previous | water STALE + warning |
 | both fail, or the image build fails | previous | previous | both STALE |
 | a new file fails validation | as a failed job | | |
+| `gh-pages` cannot be read | `publish` fails | `publish` fails | nothing deployed, markers not saved, retried at the next run |
 | `check` finds no complete run, or fails | unchanged | unchanged | unchanged (nothing is shown) |
 | the same failure again at the next run | unchanged | unchanged | not redeployed |
 | nothing published before, and the job fails | missing | missing | "not available" warning |

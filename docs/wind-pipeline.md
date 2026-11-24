@@ -28,11 +28,11 @@ Limits: it checks that files are *listed*, not that they are fully uploaded; a d
 Constants: `WORKDIR=/tmp/aladin`, `OUTDIR` (env, default `/data`), box and grid from `region.py`. `main()` runs the steps below and exits 1 on any exception.
 
 1. **`find_latest_run()`**: the newest timestamp that has *any* file in any run directory, or the run in `ALADIN_RUN_TIMESTAMP` when set (the workflow passes the run `check` found, because the newest listed run can be a partial upload; an unknown run raises).
-2. **`download_latest_files(dir, ts)`**: up to 3 attempts, 180 s apart. Each attempt re-lists the directory, downloads the six `.bz2` files that are present (HTTP timeout 60 s, 1 MB chunks, files already on disk are reused), and unpacks them with `bzip2 -df`. It returns when all six exist; after the third attempt it raises "Incomplete ... CHMI upload appears stuck".
+2. **`download_latest_files(dir, ts)`**: up to 3 attempts, 180 s apart; **the retry only covers an incomplete listing** (see known behaviours). Each attempt re-lists the directory, downloads the six `.bz2` files that are present (HTTP timeout 60 s, 1 MB chunks, files already on disk are reused), and unpacks them with `bzip2 -df`. It returns when all six exist; after the third attempt it raises "Incomplete ... CHMI upload appears stuck".
 3. **`merge_gribs(files, ts)`**:
    - `create_target_grid()` writes `WORKDIR/adriatic_grid.txt` (`gridtype = lonlat`, `xsize/ysize = NX/NY`, `xfirst/yfirst = 13.0/42.5`, `xinc/yinc = 0.02`).
    - For every file: `cdo -s sellonlatbox,13.0,17.5,42.5,45.4 -<remap>,<grid> in out` where `<remap>` is **`remapnn` for `CLSWIND_DIREC` and `remapbil` for all others**. CDO applies the inner operator first, so the file is remapped onto the target grid, then cut to the box (a no-op, since the grid already is the box). All 73 steps are processed. If this fails, a two-step fallback (remap, then cut) is tried; a file that still fails is skipped with a log line. Output: `WORKDIR/run_<ts>/processed/<name>.processed.grb`.
-   - `cdo -s merge <processed files> OUTDIR/aladin_adriacenter_<ts>.grb`; failure raises. **If some variables failed to process, the merge still runs with the rest**: the incomplete file is caught later by `grib_validate.py` (438 messages), not here.
+   - `cdo -s merge <processed files> OUTDIR/aladin_adriacenter_<ts>.grb`; failure raises. The merge interleaves the variables, so the file is ordered step by step ([grib-format.md](grib-format.md)). **If some variables failed to process, the merge still runs with the rest**: the incomplete file is caught later by `grib_validate.py` (438 messages), not here.
    - `OUTDIR/aladin_adriacenter_latest.grb` is updated through a temporary symlink and rename (atomic). The publish step later turns it into a real copy.
    - `render_wind_map()` (below), wrapped so a rendering error is only logged.
    - `cleanup_old_runs()` keeps the three newest `run_*` directories (by modification time) in `WORKDIR`.
@@ -41,6 +41,15 @@ Constants: `WORKDIR=/tmp/aladin`, `OUTDIR` (env, default `/data`), box and grid 
 **Why nearest-neighbour for direction:** direction is circular (0°/360°); bilinear interpolation between 359° and 1° gives 180°. All other values are bilinearly interpolated (so output values are interpolated, not original model values).
 
 **`-s`** silences CDO's warnings, so edge or mask problems are invisible in the logs. `VARS` also holds short names (`MSLP`, `WDIR10`, ...) that nothing uses.
+
+### Known behaviours a developer should expect
+
+- **Raw downloads are never cleaned.** `cleanup_old_runs()` removes only old `run_*` directories; the unpacked CHMI files (about 0.5 GB per run) stay in `WORKDIR`. Harmless in CI (fresh runner), unbounded growth in the self-hosted variant.
+- **Only the request is protected, not the transfer.** `download_file_with_progress()` catches errors of the initial request; an error while streaming propagates and the run exits 1 without a retry. The "3 attempts" apply to an incomplete listing, not to a broken download.
+- **A truncated `.bz2` is never re-downloaded**: an existing file is reused, `bzip2 -df` then fails. In CI the workspace is fresh, so a retry works; in the self-hosted variant (persistent `/tmp/aladin`) the same run fails every hour until the file is removed.
+- **No lock** between the cron job and the run `start.sh` launches in the background; they can overlap.
+- **Partial processing:** variables that fail in CDO are skipped and the merge continues (only `grib_validate.py` notices).
+- **Raw time encoding:** the CHMI files use time range indicator 1 at step 0 and 10 afterwards; CDO 2.0.4 rewrites all steps as indicator 0 ([grib-format.md](grib-format.md)).
 
 ## 3. Wind map: `render_wind_map()`
 
