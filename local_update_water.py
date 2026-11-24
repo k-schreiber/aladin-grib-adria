@@ -4,6 +4,7 @@
 Same rule as the workflow: check_marine.py decides, a key file in OUTDIR remembers the last build.
 Needs COPERNICUSMARINE_SERVICE_USERNAME / COPERNICUSMARINE_SERVICE_PASSWORD; without them it only logs.
 """
+import fcntl
 import os
 import shutil
 import sys
@@ -32,6 +33,17 @@ def prune(outdir, keep=KEEP):
 
 
 def main():
+    os.makedirs(OUTDIR, exist_ok=True)
+    with open(os.path.join(OUTDIR, ".water_lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("Water GRIB: another update is running")
+            return 0
+        return update()
+
+
+def update():
     if not (os.getenv("COPERNICUSMARINE_SERVICE_USERNAME") and os.getenv("COPERNICUSMARINE_SERVICE_PASSWORD")):
         print("Water GRIB skipped: COPERNICUSMARINE_SERVICE_USERNAME / _PASSWORD are not set")
         return 0
@@ -48,8 +60,9 @@ def main():
     if marine_grib.main(["--timestamp", ref, "--outdir", OUTDIR]) != 0:
         return 1  # the previous file stays; the next cron run retries
     name = f"copernicus_adriacenter_{ref}.grb"
-    shutil.copyfile(os.path.join(OUTDIR, name), os.path.join(OUTDIR, "copernicus_adriacenter_latest.grb.tmp"))
-    os.replace(os.path.join(OUTDIR, "copernicus_adriacenter_latest.grb.tmp"),
+    tmp = os.path.join(OUTDIR, f"copernicus_adriacenter_latest.grb.{os.getpid()}.tmp")
+    shutil.copyfile(os.path.join(OUTDIR, name), tmp)
+    os.replace(tmp,
                os.path.join(OUTDIR, "copernicus_adriacenter_latest.grb"))
     with open(key_path, "w") as f:
         f.write(key)

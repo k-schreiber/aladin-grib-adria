@@ -27,9 +27,9 @@ Each processing run renders a static PNG of 10m wind speed and direction over th
 
 ## Water File
 
-`copernicus_adriacenter_<run>.grb` holds the surface current (ocean and tide) and the waves (height, direction, period, wind sea and swell) from the Copernicus Mediterranean forecast. Its reference time is 00 UTC of the day of the latest Copernicus update and it holds hourly steps 0-96, so it always spans the 72 h of the newest wind file. It uses the native 1/24° grid (not regridded), in the same GRIB1 format. Land points are missing values. It always uses the newest Copernicus dataset version, so values can change when Copernicus releases a new model.
+`copernicus_adriacenter_<YYYYMMDD00>.grb` holds the surface current (ocean and tide) and the waves (height, direction, period, wind sea and swell) from the Copernicus Mediterranean forecast. Its reference time is 00 UTC of the day of the latest Copernicus update and it holds hourly steps 0-108, so it always spans the 72 h of the newest wind file. It uses the native 1/24° grid (not regridded), in the same GRIB1 format. Land points are missing values. It always uses the newest Copernicus dataset version, so values can change when Copernicus releases a new model.
 
-It needs a free Copernicus Marine account: store `COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` as repository secrets, or in a git-ignored `secrets.yaml` for local tests (`python3 scripts/with_secrets.py -- python3 marine_grib.py --timestamp 2026112318 --outdir out`).
+It needs a free Copernicus Marine account: store `COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` as repository secrets, or in a git-ignored `secrets.yaml` for local tests (`python3 scripts/with_secrets.py -- python3 marine_grib.py --timestamp 2026112400 --outdir out`).
 
 
 ## Run locally
@@ -87,14 +87,14 @@ The tests need no network, Docker or CDO and run on every pull request. Tests th
           
 - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model, and Copernicus Marine (Mediterranean physics and waves)
 - **Region**: Central Adriatic Sea (13.0-17.5°E, 42.5-45.4°N)
-- **Time frame**: wind: one ALADIN run, steps 0-72; water: from 00 UTC of the update day, steps 0-96, so the water file always covers the wind file
-- **Update frequency**: Roughly every 6 hours by CHMI, processed here when the workflow runs
+- **Time frame**: wind: one ALADIN run, steps 0-72; water: from 00 UTC of the update day, steps 0-108, so the water file covers every wind file published before the next Copernicus update
+- **Update frequency**: wind every 6 hours (CHMI), water up to three times a day (Copernicus); each file is rebuilt when its data is new
 - **Wind file** (`aladin_adriacenter_<run>.grb`): ALADIN Lambert 2.3km grid, 0.02° (~2.2 km) regular lat-lon grid
   - Mean Sea Level Pressure (MSLP)
   - Wind Speed and Direction at 10m
   - Wind Gusts (u/v components)
   - Temperature at 2m
-- **Water file** (`copernicus_adriacenter_<run>.grb`): native 1/24° (~4 km) points
+- **Water file** (`copernicus_adriacenter_<YYYYMMDD00>.grb`): native 1/24° (~4 km) points
   - Surface current (u/v components)
   - Wave height, direction and period, wind sea and primary swell
 - Contains modified Copernicus Marine Service information: https://doi.org/10.48670/mds-00359 (currents), https://doi.org/10.48670/mds-00373 (waves)

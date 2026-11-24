@@ -101,6 +101,11 @@ def index():
         stamp = None
         if os.path.islink(path):
             stamp = parse_timestamp(os.readlink(path))
+        elif os.path.exists(path):  # published and built copies: the newest timestamped file of the same kind
+            kind = name.replace("latest", "")
+            newest = sorted(f for f in os.listdir(DATA_DIR)
+                            if f.startswith(kind) and f.endswith(".grb") and f != name)
+            stamp = parse_timestamp(newest[-1]) if newest else None
         latest.append((name, os.path.exists(path), stamp))
 
     # List all GRIB files

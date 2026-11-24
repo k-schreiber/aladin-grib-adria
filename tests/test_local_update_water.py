@@ -34,7 +34,7 @@ class LocalWaterUpdateTests(unittest.TestCase):
         return 0
 
     def test_builds_once_per_copernicus_update(self):
-        with mock.patch.object(self.m.check_marine, "newest_update", return_value=("202611240350", "2026112400")), \
+        with mock.patch.object(self.m.check_marine, "newest_update", return_value=("202611240350-202511-202311", "2026112400")), \
              mock.patch.object(self.m.marine_grib, "main", side_effect=self.fake_build) as build:
             self.assertEqual(self.m.main(), 0)
             self.assertEqual(self.m.main(), 0)
@@ -44,7 +44,7 @@ class LocalWaterUpdateTests(unittest.TestCase):
     def test_a_failed_build_keeps_the_old_files_and_is_retried(self):
         with open(self.path("copernicus_adriacenter_latest.grb"), "wb") as f:
             f.write(b"old")
-        with mock.patch.object(self.m.check_marine, "newest_update", return_value=("202611240350", "2026112400")), \
+        with mock.patch.object(self.m.check_marine, "newest_update", return_value=("202611240350-202511-202311", "2026112400")), \
              mock.patch.object(self.m.marine_grib, "main", return_value=1) as build:
             self.assertEqual(self.m.main(), 1)
             self.assertEqual(self.m.main(), 1)
@@ -56,6 +56,14 @@ class LocalWaterUpdateTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"COPERNICUSMARINE_SERVICE_USERNAME": ""}), \
              mock.patch.object(self.m.check_marine, "newest_update") as check:
             self.assertEqual(self.m.main(), 0)
+        check.assert_not_called()
+
+    def test_a_second_update_running_at_the_same_time_does_nothing(self):
+        import fcntl
+        with open(self.path(".water_lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with mock.patch.object(self.m.check_marine, "newest_update") as check:
+                self.assertEqual(self.m.main(), 0)
         check.assert_not_called()
 
     def test_old_files_are_pruned(self):

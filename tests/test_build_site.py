@@ -110,14 +110,40 @@ class SiteTests(unittest.TestCase):
             self.assertNotIn("ends before the wind file", text)
 
     def test_a_water_file_that_ends_before_the_wind_file_is_flagged_and_a_covering_one_is_not(self):
-        # water 2026-11-23 00 + 96 h = 11-27 00; wind 11-24 12 + 72 h = 11-27 12
-        status, _, _, out = self.build({"wind": "2026112412", "marine": "2026112300"}, "success", "success", None,
-                                       self.artifact("wind", "2026112412"), self.artifact("marine", "2026112300"))
+        # water 11-23 00 + 108 h = 11-27 12; wind 11-25 12 + 72 h = 11-28 12: not covered
+        self.build({"wind": "2026112512", "marine": "2026112300"}, "success", "success", None,
+                   self.artifact("wind", "2026112512"), self.artifact("marine", "2026112300"))
         self.assertIn("ends before the wind file", self.read("site", "README.md"))
-        # water 11-24 00 + 96 h = 11-28 00 covers it
-        self.build({"wind": "2026112412", "marine": "2026112400"}, "success", "success", None,
-                   self.artifact("wind", "2026112412"), self.artifact("marine", "2026112400"), out="site2")
+        # water 11-24 00 + 108 h = 11-28 12 covers it exactly
+        self.build({"wind": "2026112512", "marine": "2026112400"}, "success", "success", None,
+                   self.artifact("wind", "2026112512"), self.artifact("marine", "2026112400"), out="site2")
         self.assertNotIn("ends before the wind file", self.read("site2", "README.md"))
+
+    def test_a_failed_same_day_water_update_does_not_claim_a_new_reference_time(self):
+        prev = self.prev(wind="2026112400", marine="2026112400")
+        status, outcomes, _, out = self.build({"wind": "2026112400", "marine": "2026112400"}, "skipped", "failure", prev)
+        self.assertEqual(outcomes["marine"], "failed")
+        text = self.read("site", "index.html")
+        self.assertIn("The latest Copernicus update failed", text)
+        self.assertNotIn("update to reference time", text)
+
+    def test_a_missing_checker_answer_still_renders_sensible_warnings(self):
+        # no run for this attempt at all (checker failed), nothing published yet
+        status, _, _, out = self.build({"wind": "", "marine": ""}, "skipped", "skipped", None)
+        text = self.read("site", "README.md")
+        self.assertNotIn("unknown run", text)
+
+    def test_a_same_day_update_with_the_same_reference_time_replaces_the_water_file(self):
+        prev = self.prev(wind="2026112400", marine="2026112400")
+        _, outcomes, changed, out = self.build({"wind": "2026112400", "marine": "2026112400"}, "skipped", "success", prev,
+                                               None, self.artifact("marine", "2026112400"))
+        self.assertEqual(outcomes["marine"], "new")
+        self.assertTrue(changed)
+
+    def test_the_coverage_warning_is_on_the_website_too(self):
+        self.build({"wind": "2026112612", "marine": "2026112400"}, "success", "success", None,
+                   self.artifact("wind", "2026112612"), self.artifact("marine", "2026112400"))
+        self.assertIn("ends before the wind file", self.read("site", "index.html"))
 
     def test_a_failed_marine_job_keeps_the_previous_file(self):
         prev = self.prev(wind="2026112312", marine="2026112312")

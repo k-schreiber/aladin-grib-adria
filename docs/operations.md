@@ -63,12 +63,15 @@ After a dry run, download the `site` artifact and run `grib_validate.py` on both
 
 **Change the region** (`region.py`): keep the box a whole number of 0.02° steps (the module raises otherwise); run `python3 scripts/make_coastline.py`; check that ALADIN covers the box (remap onto the grid, count missing points) and that the Copernicus lattice has points in it; update sizes in [grib-format.md](grib-format.md) if you publish them; run the tests; after merging run once with `force`. The coastline, grid, validators, README text and pages all follow `region.py`.
 
-**Add a water field:** add it to `marine_grib.FIELDS` (variable, GRIB1 parameter, level type, source) and `grib_validate.MARINE_RANGES`, update the parameter table in [grib-format.md](grib-format.md), update message counts in the tests (1067 = 11 x 97), and check the parameter in the viewers.
+**Add a water field:** add it to `marine_grib.FIELDS` (variable, GRIB1 parameter, level type, source) and `grib_validate.MARINE_RANGES`, update the parameter table in [grib-format.md](grib-format.md), update message counts in the tests (1199 = 11 x 109), and check the parameter in the viewers.
 
 **Add a wind variable:** add it to `VARS` in `load_and_merge_gribs.py` and `REQUIRED_VARS` in `check_availability.py`, its parameter to `grib_validate.WIND_RANGES`, and update the tests (438 = 6 x 73).
 
 ## Known limitations and inconsistencies
 
+- A manual `workflow_dispatch` queued behind a running job can be replaced by the next scheduled run (one pending run per concurrency group); re-dispatch if it shows as cancelled.
+- If the Copernicus metadata cannot be read, the water file silently stays as it is (only a log annotation); a whole missed Copernicus day is flagged by the coverage warning about a day later.
+- The self-hosted water update is protected by a file lock; the wind part still has none.
 - **Schedule.** The cron fires every 15 minutes but GitHub skips many slots; a static page cannot show that nothing ran (a data-age display was considered and declined). A reliable trigger would need an external scheduler calling `workflow_dispatch` ([decisions.md](decisions.md) 26).
 - GRIB1 cannot store the 1/24° increment; the water file omits it ([grib-format.md](grib-format.md)).
 - The README names the local container `aladin-grib`, `docker-compose.yml` names it `aladin-grib-processor`.

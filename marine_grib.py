@@ -189,11 +189,11 @@ def _set_header(h, ec, lons, lats):
 
 
 def write_grib(path, data, lons, lats, t0):
-    """Write all FIELDS (arrays of shape time x lat x lon, NaN = missing) as GRIB1; returns the message count."""
+    """Write all FIELDS (arrays of shape time x lat x lon, NaN = missing) as GRIB1 to a temporary file next to `path`; returns (temporary path, message count). The caller validates it and renames it."""
     import eccodes as ec
 
     date, hhmm = int(t0.strftime("%Y%m%d")), t0.hour * 100
-    tmp = path + ".tmp"
+    tmp = f"{path}.{os.getpid()}.tmp"
     count = 0
     with open(tmp, "wb") as out:
         for name, param, level_type, _ in FIELDS:
@@ -218,8 +218,7 @@ def write_grib(path, data, lons, lats, t0):
                     count += 1
                 finally:
                     ec.codes_release(h)
-    os.replace(tmp, path)
-    return count
+    return tmp, count
 
 
 def released(part, now):
@@ -278,12 +277,13 @@ def main(argv=None):
             currents = fetch(CURRENTS, ["uo", "vo"], t0, tmp, "currents")
             waves = fetch(WAVES, [name for name, _, _, source in FIELDS if source == "waves"], t0, tmp, "waves")
             data, lons, lats, systems = load_data(currents, waves, t0)
-        count = write_grib(final, data, lons, lats, t0)
+        tmp_file, count = write_grib(final, data, lons, lats, t0)
         try:
-            grib_validate.validate_marine(final, args.timestamp)
-        except grib_validate.ValidationError:
-            os.remove(final)
-            raise
+            grib_validate.validate_marine(tmp_file, args.timestamp)
+            os.replace(tmp_file, final)  # only a validated file ever gets the final name
+        finally:
+            if os.path.exists(tmp_file):
+                os.remove(tmp_file)
         updated, in_use, retires = catalogue_info()
         print(f"Copernicus model systems used: {systems}; dataset versions in use: {in_use}")
         if retires:

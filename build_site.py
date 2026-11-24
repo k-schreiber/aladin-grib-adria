@@ -165,16 +165,23 @@ def status_line(spec, entry, name):
     return text + model_text(entry)
 
 
+def failed_update(spec, entry):
+    """Names what failed. A water update can fail for the reference time that is already shown (a second update
+    on the same day), and its checker may have given no time at all, so it is not named by time."""
+    if spec["label"] == "ALADIN run" and entry.get("failed_for"):
+        return f"The update to ALADIN run {fmt_run(entry['failed_for'])}"
+    return "The latest update" if spec["label"] == "ALADIN run" else "The latest Copernicus update"
+
+
 def warnings(status):
     out = []
     for name, spec in ASSETS.items():
         entry = status["assets"][name]
         if entry["state"] == "stale":
-            out.append(f"The update to {spec['label']} {fmt_run(entry['failed_for'])} failed for {spec['title']}. "
+            out.append(f"{failed_update(spec, entry)} failed for {spec['title']}. "
                        f"Showing {spec['label']} {fmt_run(entry['run'])} (stale since {fmt_utc(entry['failed_since_utc'])}).")
         elif entry["state"] == "missing":
-            out.append(f"{spec['title']} is not available: the update to {spec['label']} "
-                       f"{fmt_run(entry['failed_for'])} failed and there is no earlier file.")
+            out.append(f"{spec['title']} is not available: {failed_update(spec, entry).lower()} failed and there is no earlier file.")
     wind, marine = status["assets"]["wind"].get("run"), status["assets"]["marine"].get("run")
     if wind and marine and run_end(marine, region.MARINE_HOURS) < run_end(wind, region.FORECAST_HOURS):
         out.append(f"The water file (to {fmt_run(run_end(marine, region.MARINE_HOURS).strftime('%Y%m%d%H'))}) ends "

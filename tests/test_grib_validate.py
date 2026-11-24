@@ -1,4 +1,5 @@
 import os
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -124,7 +125,8 @@ class MarineValidationTests(unittest.TestCase):
 
     def write(self, **kwargs):
         t0 = datetime(2026, 11, 23, 18, tzinfo=timezone.utc)
-        self.mg.write_grib(self.path, self.data(**kwargs), self.lons, self.lats, t0)
+        tmp, _ = self.mg.write_grib(self.path, self.data(**kwargs), self.lons, self.lats, t0)
+        os.replace(tmp, self.path)
 
     def validate(self):
         self.gv.validate_marine(self.path, TS, lons=self.lons, lats=self.lats, steps=self.STEPS)

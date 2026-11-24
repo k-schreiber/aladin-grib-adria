@@ -62,7 +62,7 @@ class PureFunctionTests(unittest.TestCase):
         self.assertNotIn("dataset_version", calls[0])
         self.assertEqual(calls[0]["dataset_id"], "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m")
         self.assertEqual((calls[0]["start_datetime"], calls[0]["end_datetime"]),
-                         ("2026-11-23T18:00:00", "2026-11-27T18:00:00"))
+                         ("2026-11-23T18:00:00", "2026-11-28T06:00:00"))
         self.assertTrue(path.endswith("currents.nc"))
 
     def catalogue(self, now):
@@ -119,11 +119,11 @@ class PureFunctionTests(unittest.TestCase):
         self.assertGreaterEqual(region.MARINE_LATS[-1], 45 + 22 / 60)  # reaches 45°22'
         self.assertLessEqual(region.MARINE_LATS[-1], region.LAT_MAX + 1e-4)
 
-    def test_forecast_window_is_97_hourly_steps(self):
+    def test_forecast_window_is_109_hourly_steps(self):
         times = self.mg.expected_times(T0)
         self.assertEqual(times.size, region.MARINE_HOURS + 1)
         self.assertEqual(str(times[0]), "2026-11-23T18")
-        self.assertEqual(str(times[-1]), "2026-11-27T18")
+        self.assertEqual(str(times[-1]), "2026-11-28T06")
 
     def axes(self, lons=None, lats=None, times=None):
         np = self.np
@@ -235,9 +235,11 @@ class WriteGribTests(unittest.TestCase):
             data[name] = arr
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "m.grb")
-            self.assertEqual(self.mg.write_grib(path, data, lons, lats, T0), 22)
+            written, count = self.mg.write_grib(path, data, lons, lats, T0)
+            self.assertEqual(count, 22)
+            self.assertFalse(os.path.exists(path))  # only the temporary file exists until the caller validates it
             seen = []
-            with open(path, "rb") as f:
+            with open(written, "rb") as f:
                 while True:
                     h = ec.codes_grib_new_from_file(f)
                     if h is None:
@@ -280,9 +282,31 @@ class WriteGribTests(unittest.TestCase):
             data[name] = arr
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "m.grb")
-            self.assertEqual(self.mg.write_grib(path, data, lons, lats, T0), 11 * steps)
-            self.gv.validate_marine(path, "2026112318")
-            self.assertLess(os.path.getsize(path), 8e6)
+            written, count = self.mg.write_grib(path, data, lons, lats, T0)
+            self.assertEqual(count, 11 * steps)
+            self.gv.validate_marine(written, "2026112318")
+            self.assertLess(os.path.getsize(written), 9e6)
+
+
+@unittest.skipUnless(HAVE_ECCODES and HAVE_NUMPY, "needs eccodes and numpy")
+class MainKeepsTheOldFileTests(unittest.TestCase):
+    def test_a_file_that_fails_validation_never_replaces_or_deletes_an_existing_one(self):
+        import numpy as np
+        import grib_validate
+        import marine_grib as mg
+        lons, lats = np.array([13.0, 13.0417]), np.array([42.5208, 42.5625])
+        data = {name: 1.0 + np.arange(2.0).reshape(1, 1, 2).repeat(2, 1) for name, _, _, _ in mg.FIELDS}
+        env = {"COPERNICUSMARINE_SERVICE_USERNAME": "u", "COPERNICUSMARINE_SERVICE_PASSWORD": "p"}
+        with tempfile.TemporaryDirectory() as out, mock.patch.dict(os.environ, env), \
+                mock.patch.object(mg, "fetch", return_value="x.nc"), \
+                mock.patch.object(mg, "load_data", return_value=(data, lons, lats, {})):
+            final = os.path.join(out, "copernicus_adriacenter_2026112400.grb")
+            with open(final, "wb") as f:
+                f.write(b"previous good file")
+            self.assertEqual(mg.main(["--timestamp", "2026112400", "--outdir", out]), 1)  # wrong shape: invalid
+            with open(final, "rb") as f:
+                self.assertEqual(f.read(), b"previous good file")
+            self.assertEqual([n for n in os.listdir(out) if n.endswith(".tmp")], [])
 
 
 @unittest.skipUnless(HAVE_NETCDF and HAVE_NUMPY, "needs xarray, h5netcdf, h5py and numpy")

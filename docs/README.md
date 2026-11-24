@@ -28,7 +28,7 @@ If a document and the code disagree, one of them is wrong: fix it in the same ch
 
 ## Conventions
 
-- All times are **UTC**. A **run** is an ALADIN model run, identified by `YYYYMMDDHH` (00, 06, 12 or 18 UTC). A **step** is the forecast hour after the run, 0 to 72. **Valid time** = run + step hours.
-- The **wind file** is `aladin_adriacenter_<run>.grb` (CHMI ALADIN). The **water file** is `copernicus_adriacenter_<run>.grb` (Copernicus Marine currents and waves). Each also exists as `*_latest.grb` (a copy, not a link, on `gh-pages`).
+- All times are **UTC**. A **run** is an ALADIN model run, identified by `YYYYMMDDHH` (00, 06, 12 or 18 UTC). A **step** is the forecast hour after the reference time: for the wind file (reference time = the run) 0 to 72, for the water file (reference time = 00 UTC of a Copernicus update day) 0 to 108. **Valid time** = reference time + step hours.
+- The **wind file** is `aladin_adriacenter_<run>.grb` (CHMI ALADIN). The **water file** is `copernicus_adriacenter_<YYYYMMDD00>.grb` (Copernicus Marine currents and waves). Each also exists as `*_latest.grb` (a copy, not a link, on `gh-pages`).
 - Coordinates are degrees; longitude east, latitude north. Directions of wind and waves are "from" directions (meteorological convention) unless stated.
 - File and function references are to the repository root.

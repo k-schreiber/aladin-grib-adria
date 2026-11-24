@@ -9,11 +9,11 @@ Whenever new data appears the system turns public forecast data into two GRIB fi
 | Output | Source | Content |
 |---|---|---|
 | `aladin_adriacenter_<run>.grb` (+ `_latest`) | CHMI ALADIN 2.3 km (open data) | pressure, wind speed/direction, gusts, 2 m temperature on a 0.02° grid |
-| `copernicus_adriacenter_<run>.grb` (+ `_latest`) | Copernicus Marine, Mediterranean forecast | surface current, waves on the native 1/24° grid |
+| `copernicus_adriacenter_<YYYYMMDD00>.grb` (+ `_latest`) | Copernicus Marine, Mediterranean forecast | surface current, waves on the native 1/24° grid |
 | `aladin_wind_<run>.png` (+ `_latest`) | rendered from the wind data | wind map, embedded in the `gh-pages` README only |
 | `index.html`, `README.md`, `status.json` | generated | file list, status line, stale-file warning |
 
-The wind GRIB covers one ALADIN run (steps 0-72); the water GRIB has its own reference time (00 UTC of the Copernicus update day, steps 0-96) so it always spans the wind file. Same region, same GRIB1 conventions ([grib-format.md](grib-format.md)).
+The wind GRIB covers one ALADIN run (steps 0-72); the water GRIB has its own reference time (00 UTC of the Copernicus update day, steps 0-108) so it spans every wind file published before the next Copernicus update. Same region, same GRIB1 conventions ([grib-format.md](grib-format.md)).
 
 ## Components
 
@@ -49,7 +49,7 @@ The wind GRIB covers one ALADIN run (steps 0-72); the water GRIB has its own ref
 
 1. **Independent flows.** `wind` and `marine` have no dependency on each other; one failing never stops the other.
 2. **Always a valid file.** `publish` replaces a published file only by a new, validated one; otherwise the previous file stays and the page says so.
-3. **Water covers wind.** The water file starts at 00 UTC of the update day and runs 96 h, so it always spans the newest wind file ([marine-pipeline.md](marine-pipeline.md)).
+3. **Water covers wind.** The water file starts at 00 UTC of the update day and runs 108 h, so it spans the newest wind file even before the next morning's Copernicus update ([marine-pipeline.md](marine-pipeline.md)).
 4. **One definition of the region.** `region.py` is the only place that holds the box; grids, sizes, validators, the coastline generator and the region texts derive from it. (The two Copernicus DOIs are written in both `build_site.py` and `marine_grib.py`; a test keeps them equal.)
 5. **Validate before publishing.** A new file that fails `grib_validate.py` counts as a failed job.
 6. **One image.** Both jobs run the same Docker image; an install problem affects both.

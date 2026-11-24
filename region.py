@@ -10,9 +10,11 @@ DY = 0.02
 
 FORECAST_HOURS = 72  # the wind GRIB holds the hourly steps 0..FORECAST_HOURS of one ALADIN run
 # The water GRIB is independent of ALADIN runs: its reference time is 00 UTC of the day of the newest
-# Copernicus update and it holds MARINE_HOURS + 1 hourly steps. Worst case, the newest wind run (18 UTC) ends
-# 90 h after 00 UTC of its day, and its water file may only be replaced the next morning, so 96 h always covers it.
-MARINE_HOURS = 96
+# Copernicus update and it holds MARINE_HOURS + 1 hourly steps. The file of day D is replaced by the first update
+# of day D+1 (waves, about 03:50 UTC), so until then it must cover the runs of D+1 as well: the 00 UTC run
+# (complete 03-04:30) ends 96 h and the 06 UTC run (complete 09-10:30) 102 h after 00 UTC of D. 108 h adds a margin
+# of 6 h for a late update; a whole missed Copernicus day is not covered and is flagged on the page.
+MARINE_HOURS = 108
 
 # Copernicus Med-MFC grid (currents and waves share it): 1/24 degree from this origin.
 COPERNICUS_LON0 = -17.291666

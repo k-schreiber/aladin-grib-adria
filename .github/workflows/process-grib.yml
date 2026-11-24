@@ -69,6 +69,9 @@ jobs:
         run: |
           out=$(docker run --rm aladin-checker:latest check_marine.py 2>/tmp/marine_check.log) && rc=0 || rc=$?
           cat /tmp/marine_check.log
+          if [ "$rc" != "0" ]; then
+            echo "::warning title=Copernicus check failed::The Copernicus metadata could not be read; the water file is not updated in this run."
+          fi
           if [ "$rc" = "0" ]; then
             echo "key=${out%% *}" >> $GITHUB_OUTPUT
             echo "ref=${out##* }" >> $GITHUB_OUTPUT
@@ -197,6 +200,7 @@ jobs:
           load: true
           tags: aladin-processor:latest
           cache-from: type=gha,scope=processor
+          cache-to: type=gha,mode=max,scope=processor
 
       - name: Simulate a marine failure (dry run only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.simulate == 'marine' }}
