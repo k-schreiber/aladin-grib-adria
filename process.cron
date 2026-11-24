@@ -1,2 +1,4 @@
-# Run load_and_merge_gribs.py every hour at minute 0
+# Wind: rebuild the latest ALADIN run every hour at minute 0
 0 * * * * python3 /app/load_and_merge_gribs.py >> /proc/1/fd/1 2>&1
+# Water: check for new Copernicus data every 15 minutes, build only when there is some
+*/15 * * * * . /app/cron_env.sh; python3 /app/local_update_water.py >> /proc/1/fd/1 2>&1

@@ -53,7 +53,9 @@ def create_target_grid():
 
 
 def find_latest_run():
-    """Find the latest run across all run directories"""
+    """Find the latest run across all run directories, or the run in ALADIN_RUN_TIMESTAMP when set
+    (the workflow passes the newest *complete* run; the newest listed one may be a partial upload)."""
+    wanted = os.getenv("ALADIN_RUN_TIMESTAMP")
     latest_ts = ""
     latest_dir = ""
 
@@ -75,12 +77,13 @@ def find_latest_run():
                 parts = link.split("_")
                 if len(parts) >= 2:
                     ts = parts[1]
-                    if ts > latest_ts:
+                    if (ts == wanted) if wanted else (ts > latest_ts):
                         latest_ts = ts
                         latest_dir = run
 
     if not latest_ts:
-        raise Exception("No Lambert 2.3km files found in any run directory")
+        raise Exception(f"No Lambert 2.3km files found for run {wanted}" if wanted
+                        else "No Lambert 2.3km files found in any run directory")
 
     return latest_dir, latest_ts
 

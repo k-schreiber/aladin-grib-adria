@@ -76,8 +76,48 @@ class PackagingTests(unittest.TestCase):
     def test_dockerfile_ships_the_files_the_wind_script_needs(self):
         with open(os.path.join(ROOT, "Dockerfile")) as f:
             copied = " ".join(re.findall(r"^COPY\s+(.*)$", f.read(), flags=re.M))
-        for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json"):
+        for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json", "marine_grib.py", "grib_validate.py",
+                     "check_marine.py", "local_update_water.py", "server.py", "start.sh", "process.cron"):
             self.assertIn(name, copied)
+
+    def test_dockerfile_installs_every_external_tool_the_wind_script_runs(self):
+        # The apt layer is installed without recommends, so a tool is only there if it is listed
+        # (bzip2 used to arrive as a recommend and its removal broke the wind job in CI).
+        with open(os.path.join(ROOT, "load_and_merge_gribs.py")) as f:
+            tools = set(re.findall(r'subprocess\.run\(\s*\[\s*"([\w.-]+)"', f.read()))
+        with open(os.path.join(ROOT, "Dockerfile")) as f:
+            dockerfile = f.read()
+        installed_elsewhere = {"rm"}  # coreutils
+        self.assertIn("bzip2", tools)
+        self.assertIn("cdo", tools)
+        for tool in tools - installed_elsewhere:
+            self.assertRegex(dockerfile, re.compile(rf"^\s+{re.escape(tool)}\s*\\$", re.M), tool)
+
+    def test_the_checker_image_ships_both_checkers(self):
+        with open(os.path.join(ROOT, "Dockerfile.checker")) as f:
+            text = f.read()
+        self.assertIn("check_availability.py", text)
+        self.assertIn("check_marine.py", text)
+
+    def test_the_local_container_schedules_the_water_update_and_gets_the_credentials(self):
+        with open(os.path.join(ROOT, "process.cron")) as f:
+            self.assertRegex(f.read(), r"(?m)^\*/15 .*local_update_water\.py")
+        with open(os.path.join(ROOT, "docker-compose.yml")) as f:
+            text = f.read()
+        for key in ("COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"):
+            self.assertIn(key, text)
+
+    def test_the_container_does_not_buffer_python_output(self):
+        with open(os.path.join(ROOT, "Dockerfile")) as f:
+            self.assertRegex(f.read(), re.compile(r"^ENV PYTHONUNBUFFERED=1\s*$", re.M))
+
+    def test_dockerignore_keeps_credentials_out_of_the_build_context(self):
+        with open(os.path.join(ROOT, ".dockerignore")) as f:
+            self.assertIn("secrets.yaml", f.read().split())
+
+    def test_gitignore_keeps_credentials_out_of_git(self):
+        with open(os.path.join(ROOT, ".gitignore")) as f:
+            self.assertIn("secrets.yaml", f.read().split())
 
 
 if __name__ == "__main__":

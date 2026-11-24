@@ -1,0 +1,8 @@
+secrets.yaml
+.git
+.github
+docs
+tests
+graft
+__pycache__
+*.pyc

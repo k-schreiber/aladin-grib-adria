@@ -2,15 +2,43 @@ name: Process ALADIN GRIB Files
 
 on:
   schedule:
-    - cron: '5 * * * *'  # Every hour at :05
+    - cron: '*/15 * * * *'  # GitHub skips many scheduled slots; a dense schedule keeps the delay to about 15-30 minutes
   workflow_dispatch:  # Manual trigger
+    inputs:
+      dry_run:
+        description: "Build and assemble everything, but do not deploy or save markers"
+        type: boolean
+        default: false
+      force:
+        description: "Process both assets even if their latest data was already processed"
+        type: boolean
+        default: false
+      simulate:
+        description: "With dry_run: make this job fail, to test that the previous file is kept"
+        type: choice
+        options: [none, wind, marine]
+        default: none
+
+# One pipeline per branch at a time: a long run delays the next one instead of racing it,
+# and a test run on another branch can never cancel or replace a pending production run.
+concurrency:
+  group: aladin-pipeline-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # Only runs on main that are not dry runs may deploy gh-pages or save markers.
+  DEPLOY: ${{ github.ref == 'refs/heads/main' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
-      should_process: ${{ steps.decide.outputs.should_process }}
       timestamp: ${{ steps.checker.outputs.timestamp }}
+      marine_key: ${{ steps.marine_check.outputs.key }}
+      marine_ref: ${{ steps.marine_check.outputs.ref }}
+      need_wind: ${{ steps.decide.outputs.need_wind }}
+      need_marine: ${{ steps.decide.outputs.need_marine }}
 
     steps:
       - name: Checkout repository
@@ -20,14 +48,14 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build checker image
-        run: |
-          docker buildx build \
-            --file Dockerfile.checker \
-            --tag aladin-checker:latest \
-            --cache-from type=gha,scope=checker \
-            --cache-to type=gha,mode=max,scope=checker \
-            --load \
-            .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.checker
+          load: true
+          tags: aladin-checker:latest
+          cache-from: type=gha,scope=checker
+          cache-to: type=gha,mode=max,scope=checker
 
       - name: Run availability check
         id: checker
@@ -36,8 +64,21 @@ jobs:
           cat /tmp/checker.log
           echo "timestamp=${ts}" >> $GITHUB_OUTPUT
 
-      - name: Check if already processed
-        id: cache_check
+      - name: Check for new Copernicus data
+        id: marine_check
+        run: |
+          out=$(docker run --rm aladin-checker:latest check_marine.py 2>/tmp/marine_check.log) && rc=0 || rc=$?
+          cat /tmp/marine_check.log
+          if [ "$rc" != "0" ]; then
+            echo "::warning title=Copernicus check failed::The Copernicus metadata could not be read; the water file is not updated in this run."
+          fi
+          if [ "$rc" = "0" ]; then
+            echo "key=${out%% *}" >> $GITHUB_OUTPUT
+            echo "ref=${out##* }" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if wind was already processed
+        id: wind_marker
         if: steps.checker.outputs.timestamp != ''
         uses: actions/cache/restore@v6
         with:
@@ -45,24 +86,39 @@ jobs:
           key: processed-${{ steps.checker.outputs.timestamp }}
           lookup-only: true
 
-      - name: Decide whether to process
-        id: decide
-        run: |
-          if [ -z "${{ steps.checker.outputs.timestamp }}" ]; then
-            echo "should_process=false" >> $GITHUB_OUTPUT
-            echo "No new complete data available."
-          elif [ "${{ steps.cache_check.outputs.cache-hit }}" == "true" ]; then
-            echo "should_process=false" >> $GITHUB_OUTPUT
-            echo "Timestamp ${{ steps.checker.outputs.timestamp }} already processed."
-          else
-            echo "should_process=true" >> $GITHUB_OUTPUT
-            echo "Will process: ${{ steps.checker.outputs.timestamp }}"
-          fi
+      - name: Check if marine was already processed
+        id: marine_marker
+        if: steps.marine_check.outputs.key != ''
+        uses: actions/cache/restore@v6
+        with:
+          path: .processed-marker
+          key: processed-marine-${{ steps.marine_check.outputs.key }}
+          lookup-only: true
 
-  process:
+      - name: Decide what to process
+        id: decide
+        env:
+          TS: ${{ steps.checker.outputs.timestamp }}
+          MARINE_KEY: ${{ steps.marine_check.outputs.key }}
+          WIND_DONE: ${{ steps.wind_marker.outputs.cache-hit }}
+          MARINE_DONE: ${{ steps.marine_marker.outputs.cache-hit }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
+        run: |
+          need_wind=false
+          need_marine=false
+          if [ -n "$TS" ] && { [ "$FORCE" = "true" ] || [ "$WIND_DONE" != "true" ]; }; then need_wind=true; fi
+          if [ -n "$MARINE_KEY" ] && { [ "$FORCE" = "true" ] || [ "$MARINE_DONE" != "true" ]; }; then need_marine=true; fi
+          echo "Wind run '$TS': needed=$need_wind; Copernicus update '$MARINE_KEY': needed=$need_marine"
+          echo "need_wind=$need_wind" >> $GITHUB_OUTPUT
+          echo "need_marine=$need_marine" >> $GITHUB_OUTPUT
+
+  wind:
     needs: check
-    if: needs.check.outputs.should_process == 'true'
+    if: ${{ needs.check.outputs.need_wind == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TS: ${{ needs.check.outputs.timestamp }}
 
     steps:
       - name: Checkout repository
@@ -72,14 +128,20 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build processor image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: aladin-processor:latest
+          cache-from: type=gha,scope=processor
+          cache-to: type=gha,mode=max,scope=processor
+
+      - name: Simulate a wind failure (dry run only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.simulate == 'wind' }}
         run: |
-          docker buildx build \
-            --file Dockerfile \
-            --tag aladin-processor:latest \
-            --cache-from type=gha,scope=processor \
-            --cache-to type=gha,mode=max,scope=processor \
-            --load \
-            .
+          echo "Simulated wind failure"
+          exit 1
 
       - name: Create data directory
         run: mkdir -p data
@@ -89,6 +151,7 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}/data:/data \
             -e OUTDIR=/data \
+            -e ALADIN_RUN_TIMESTAMP="$TS" \
             aladin-processor:latest \
             python3 /app/load_and_merge_gribs.py
         timeout-minutes: 30
@@ -96,83 +159,186 @@ jobs:
       - name: List generated files
         run: ls -lh data/
 
-      - name: Create simple index
+      - name: Validate the wind GRIB
         run: |
-          cd data
-          echo '<html><head><title>ALADIN GRIB Files</title></head><body><h1>ALADIN Adria GRIB Files</h1><ul>' > index.html
-          for file in *.grb; do
-            if [ -f "$file" ]; then
-              size=$(ls -lh "$file" | awk '{print $5}')
-              echo "<li><a href=\"$file\">$file</a> ($size)</li>" >> index.html
-            fi
-          done
-          echo '</ul><p>Updated: '$(date -u)' UTC</p></body></html>' >> index.html
-          cat index.html
+          docker run --rm \
+            -v ${{ github.workspace }}/data:/data \
+            aladin-processor:latest \
+            python3 /app/grib_validate.py wind "/data/aladin_adriacenter_${TS}.grb" "$TS"
 
-      - name: Create README
+      - name: Upload wind files
+        uses: actions/upload-artifact@v7
+        with:
+          name: wind
+          path: |
+            data/aladin_adriacenter_${{ needs.check.outputs.timestamp }}.grb
+            data/aladin_wind_${{ needs.check.outputs.timestamp }}.png
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 1
+
+  marine:
+    needs: check
+    if: ${{ needs.check.outputs.need_marine == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REF: ${{ needs.check.outputs.marine_ref }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build processor image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: aladin-processor:latest
+          cache-from: type=gha,scope=processor
+          cache-to: type=gha,mode=max,scope=processor
+
+      - name: Simulate a marine failure (dry run only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && inputs.simulate == 'marine' }}
+        run: |
+          echo "Simulated marine failure"
+          exit 1
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Build the marine GRIB
         env:
-          TIMESTAMP: ${{ needs.check.outputs.timestamp }}
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
         run: |
-          cd data
-          cat > README.md <<- 'EOF'
-          # ALADIN Adria GRIB Files
+          docker run --rm \
+            -v ${{ github.workspace }}/data:/data \
+            -e OUTDIR=/data \
+            -e COPERNICUSMARINE_SERVICE_USERNAME \
+            -e COPERNICUSMARINE_SERVICE_PASSWORD \
+            aladin-processor:latest \
+            python3 /app/marine_grib.py --timestamp "$REF"
+        timeout-minutes: 15
 
-          This branch (`gh-pages`) is automatically generated and contains processed GRIB files from the ALADIN weather model.
+      - name: List generated files
+        run: ls -lh data/
 
-          ## Latest Update
+      - name: Upload marine files
+        uses: actions/upload-artifact@v7
+        with:
+          name: marine
+          path: |
+            data/copernicus_adriacenter_${{ needs.check.outputs.marine_ref }}.grb
+            data/marine_meta.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 1
 
-          EOF
+  publish:
+    needs: [check, wind, marine]
+    # !cancelled() instead of the default success(): a failed or skipped wind/marine job must not stop publishing.
+    if: ${{ !cancelled() && needs.check.result == 'success' && (needs.check.outputs.need_wind == 'true' || needs.check.outputs.need_marine == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TS: ${{ needs.check.outputs.timestamp }}
+      REF: ${{ needs.check.outputs.marine_ref }}
 
-          echo "**Last processed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> README.md
-          echo "" >> README.md
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-          # Reference the timestamped file, not the aladin_wind_latest.png symlink:
-          # README images are fetched via raw.githubusercontent.com, which serves a
-          # symlink's literal target-path text rather than following it, so a
-          # symlinked image would render broken.
-          wind_png="aladin_wind_${TIMESTAMP}.png"
-          if [ -f "$wind_png" ]; then
-            echo "![Latest ALADIN wind forecast]($wind_png)" >> README.md
-            echo "" >> README.md
-          fi
+      # Only a branch that does not exist yet (the very first deploy) may be skipped. Any other failure must
+      # fail this job: without the published files every failed asset would be reported "missing" and the
+      # deploy would remove its published file.
+      - name: Check whether a published site exists
+        id: published
+        run: |
+          rc=0
+          git ls-remote --exit-code --heads origin gh-pages > /dev/null 2>&1 || rc=$?
+          case "$rc" in
+            0) echo "exists=true" >> "$GITHUB_OUTPUT" ;;
+            2) echo "exists=false" >> "$GITHUB_OUTPUT"; echo "No gh-pages branch yet: first deploy." ;;
+            *) echo "git ls-remote failed with exit code $rc"; exit 1 ;;
+          esac
 
-          cat >> README.md <<- 'EOF'
+      - name: Checkout the published site
+        if: ${{ steps.published.outputs.exists == 'true' }}
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+          path: prev
 
-          ## About This Data
+      - name: Download wind files
+        if: ${{ needs.wind.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: wind
+          path: artifacts/wind
 
-          - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
-          - **Model**: ALADIN Lambert 2.3km grid
-          - **Region**: Adriatic Sea (13.0-17.5°E, 42.5-45.4°N)
-          - **Resolution**: 0.02° (~2.2 km) regular lat-lon grid
-          - **Update frequency**: Roughly every 6 hours by CHMI, processed here within 1 hour
-          - **Variables included**:
-            - Mean Sea Level Pressure (MSLP)
-            - Wind Speed and Direction at 10m
-            - Wind Gusts (u/v components)
-            - Temperature at 2m
+      - name: Download marine files
+        if: ${{ needs.marine.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: marine
+          path: artifacts/marine
 
-          ## Usage
+      - name: Assemble the site
+        id: site
+        env:
+          SITE_EXISTS: ${{ steps.published.outputs.exists }}
+        run: |
+          prev_args=()
+          if [ "$SITE_EXISTS" = "true" ]; then prev_args=(--prev prev); fi
+          python3 build_site.py \
+            --wind-ts "$TS" \
+            --marine-ts "$REF" \
+            --wind-result "${{ needs.wind.result }}" \
+            --marine-result "${{ needs.marine.result }}" \
+            "${prev_args[@]}" \
+            --wind artifacts/wind \
+            --marine artifacts/marine \
+            --out site
 
-          Download files here or get the latest run directly:
-          ```bash
-          wget https://k-schreiber.github.io/aladin-grib-adria/aladin_adriacenter_latest.grb
-          ```
-          EOF
+      - name: Upload the assembled site (dry run or non-main branch)
+        if: ${{ env.DEPLOY != 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: site
+          path: site
+          overwrite: true
+          retention-days: 3
 
       - name: Deploy to GitHub Pages
+        id: deploy
+        if: ${{ env.DEPLOY == 'true' && steps.site.outputs.changed == 'true' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./data
+          publish_dir: ./site
           force_orphan: true
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
-      - name: Save processed marker
-        run: echo "${{ needs.check.outputs.timestamp }}" > .processed-marker
+      - name: Prepare the processed marker
+        if: ${{ env.DEPLOY == 'true' && (steps.deploy.outcome == 'success' || steps.site.outputs.changed == 'false') }}
+        run: echo "$TS $REF" > .processed-marker
 
-      - name: Cache processed marker
+      - name: Remember the processed wind run
+        if: ${{ env.DEPLOY == 'true' && (steps.deploy.outcome == 'success' || steps.site.outputs.changed == 'false') && steps.site.outputs.save_wind_marker == 'true' }}
         uses: actions/cache/save@v6
         with:
           path: .processed-marker
           key: processed-${{ needs.check.outputs.timestamp }}
+
+      - name: Remember the processed marine run
+        if: ${{ env.DEPLOY == 'true' && (steps.deploy.outcome == 'success' || steps.site.outputs.changed == 'false') && steps.site.outputs.save_marine_marker == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .processed-marker
+          key: processed-marine-${{ needs.check.outputs.marine_key }}

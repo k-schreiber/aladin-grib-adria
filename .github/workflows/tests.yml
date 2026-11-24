@@ -8,8 +8,11 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - name: Install the libraries the tests exercise
+        # Without these the tests that need them are skipped, not failed.
+        run: python3 -m pip install numpy matplotlib requests beautifulsoup4 eccodes xarray h5netcdf h5py pyyaml
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -t . -v

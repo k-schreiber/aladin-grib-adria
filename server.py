@@ -5,6 +5,9 @@ from datetime import datetime
 app = Flask(__name__)
 DATA_DIR = os.environ.get("OUTDIR", "/data")
 LATEST_NAME = "aladin_adriacenter_latest.grb"
+MARINE_LATEST_NAME = "copernicus_adriacenter_latest.grb"
+PREFIXES = ("aladin_adriacenter_", "copernicus_adriacenter_")
+LATEST_NAMES = (LATEST_NAME, MARINE_LATEST_NAME)
 
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
@@ -30,15 +33,17 @@ INDEX_TEMPLATE = """
     <h1>ALADIN Adria Center GRIB Files</h1>
     
     <div class="latest">
-        <strong>Latest Run:</strong> 
-        {% if latest_exists %}
-            <a href="/{{ latest_name }}">{{ latest_name }}</a>
-            {% if latest_timestamp %}
-                <span class="timestamp">({{ latest_timestamp }})</span>
+        <strong>Latest:</strong>
+        {% for name, exists, stamp in latest %}
+            <div>
+            {% if exists %}
+                <a href="/{{ name }}">{{ name }}</a>
+                {% if stamp %}<span class="timestamp">({{ stamp }})</span>{% endif %}
+            {% else %}
+                {{ name }}: <span style="color: #d32f2f;">Not available yet</span>
             {% endif %}
-        {% else %}
-            <span style="color: #d32f2f;">Not available yet</span>
-        {% endif %}
+            </div>
+        {% endfor %}
     </div>
     
     <h2>All Available Files</h2>
@@ -77,7 +82,7 @@ def format_size(bytes):
 def parse_timestamp(filename):
     """Extract timestamp from filename"""
     try:
-        # Format: aladin_adriacenter_YYYYMMDDHH.grb
+        # Format: aladin_adriacenter_YYYYMMDDHH.grb or copernicus_adriacenter_YYYYMMDD00.grb
         parts = filename.split('_')
         if len(parts) >= 3:
             ts = parts[2].replace('.grb', '')
@@ -90,22 +95,24 @@ def parse_timestamp(filename):
 
 @app.route('/')
 def index():
-    # Check if latest file exists
-    latest_path = os.path.join(DATA_DIR, LATEST_NAME)
-    latest_exists = os.path.exists(latest_path)
-    latest_timestamp = None
-    
-    if latest_exists:
-        # Resolve symlink to get actual filename
-        if os.path.islink(latest_path):
-            actual_file = os.readlink(latest_path)
-            latest_timestamp = parse_timestamp(actual_file)
-    
+    latest = []
+    for name in LATEST_NAMES:
+        path = os.path.join(DATA_DIR, name)
+        stamp = None
+        if os.path.islink(path):
+            stamp = parse_timestamp(os.readlink(path))
+        elif os.path.exists(path):  # published and built copies: the newest timestamped file of the same kind
+            kind = name.replace("latest", "")
+            newest = sorted(f for f in os.listdir(DATA_DIR)
+                            if f.startswith(kind) and f.endswith(".grb") and f != name)
+            stamp = parse_timestamp(newest[-1]) if newest else None
+        latest.append((name, os.path.exists(path), stamp))
+
     # List all GRIB files
     files = []
     if os.path.exists(DATA_DIR):
         for filename in os.listdir(DATA_DIR):
-            if filename.startswith('aladin_adriacenter_') and filename.endswith('.grb') and filename != LATEST_NAME:
+            if filename.startswith(PREFIXES) and filename.endswith('.grb') and filename not in LATEST_NAMES:
                 filepath = os.path.join(DATA_DIR, filename)
                 if os.path.isfile(filepath):
                     stat = os.stat(filepath)
@@ -122,23 +129,26 @@ def index():
     
     return render_template_string(
         INDEX_TEMPLATE,
-        latest_name=LATEST_NAME,
-        latest_exists=latest_exists,
-        latest_timestamp=latest_timestamp,
+        latest=latest,
         files=files
     )
 
-@app.route(f'/{LATEST_NAME}')
-def latest():
-    path = os.path.join(DATA_DIR, LATEST_NAME)
-    if not os.path.exists(path):
-        abort(404, description="Latest file not ready yet")
-    return send_from_directory(DATA_DIR, LATEST_NAME, as_attachment=True)
+def _latest_route(name):
+    def view():
+        if not os.path.exists(os.path.join(DATA_DIR, name)):
+            abort(404, description="Latest file not ready yet")
+        return send_from_directory(DATA_DIR, name, as_attachment=True)
+    view.__name__ = "latest_" + name.split("_")[0]
+    return view
+
+
+for _name in LATEST_NAMES:
+    app.add_url_rule(f"/{_name}", view_func=_latest_route(_name))
 
 @app.route('/files/<filename>')
 def download_file(filename):
     # Security: only allow files matching the expected pattern
-    if not (filename.startswith('aladin_adriacenter_') and filename.endswith('.grb')):
+    if not (filename.startswith(PREFIXES) and filename.endswith('.grb')):
         abort(404, description="File not found")
     
     path = os.path.join(DATA_DIR, filename)
