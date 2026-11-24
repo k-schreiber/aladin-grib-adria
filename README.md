@@ -1,12 +1,12 @@
 # aladin-grib-adria
 
-Automated downloader, cutter, reprojection, and merger of CHMI Aladin 2.3km GRIB files for the central Adriatic. Reads publicly availabe CHMI weather data, and generates usable grib files for a defined bounding box in the central adriatic.
+Creates grib files containing weather data for sailing in the central Adriatic, including wind, waves and currents. Downloads, cuts, reprojects, and merges CHMI Aladin 2.3km GRIB files as well as Copernicus marine data for the central Adriatic.
 
 ![GRIB file based wind map in the central adriatic](aladin_wind_example.png "Rendered Example of the bounding box and wind map")
 
 ## Run Via GitHub Actions
 
-A workflow is scheduled every 15 minutes (GitHub skips many slots, so the real delay is minutes to about half an hour), checks CHMI and Copernicus separately and rebuilds a file only when its own data is new: wind up to four times a day, water up to three times a day. The result is published to the `gh-pages` branch.
+A workflow is scheduled every 15 minutes, checks CHMI and Copernicus separately and rebuilds a file when its own data is new: wind up to four times a day, water up to three times a day. The result is published to the `gh-pages` branch.
 No server setup required.
 
 The pipeline has four jobs:
