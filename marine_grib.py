@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build the Copernicus marine GRIB (surface currents and waves) for one ALADIN run.
+"""Build the Copernicus marine GRIB (surface currents and waves) for one reference day.
 
-Usage: python3 marine_grib.py --timestamp YYYYMMDDHH [--outdir DIR]
+Usage: python3 marine_grib.py --timestamp YYYYMMDD00 [--outdir DIR]
 
-The file covers the same hourly steps as the wind GRIB of that run (reference time = the run,
-steps 0..72) on the native 1/24 degree Copernicus grid, in the same GRIB1 conventions.
+Reference time = 00 UTC of the day of the newest Copernicus update, hourly steps 0..96 (region.MARINE_HOURS),
+so the file always spans the 72 h of the newest ALADIN run. Native 1/24 degree Copernicus grid, same GRIB1
+conventions as the wind file.
 Needs COPERNICUSMARINE_SERVICE_USERNAME / COPERNICUSMARINE_SERVICE_PASSWORD in the environment.
 """
 import argparse
@@ -86,7 +87,7 @@ def fetch(source, variables, t0, outdir, name):
     """Server-side subset of one dataset for the run's window; returns the NetCDF path."""
     import copernicusmarine
 
-    t1 = t0 + timedelta(hours=region.FORECAST_HOURS)
+    t1 = t0 + timedelta(hours=region.MARINE_HOURS)
     fmt = "%Y-%m-%dT%H:%M:%S"
 
     def call():
@@ -118,7 +119,7 @@ def crop_index(axis, lo, hi):
 
 def expected_times(t0):
     start = np.datetime64(t0.replace(tzinfo=None), "h")
-    return np.arange(start, start + region.FORECAST_HOURS + 1, dtype="datetime64[h]")
+    return np.arange(start, start + np.timedelta64(region.MARINE_HOURS + 1, "h"), dtype="datetime64[h]")
 
 
 def check_axes(currents, waves, t0):
@@ -256,7 +257,7 @@ def catalogue_info(now=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--timestamp", required=True, help="ALADIN run, YYYYMMDDHH")
+    parser.add_argument("--timestamp", required=True, help="reference time of the file, YYYYMMDDHH (00 UTC of the day of the Copernicus update)")
     parser.add_argument("--outdir", default=os.getenv("OUTDIR", "/data"))
     args = parser.parse_args(argv)
 

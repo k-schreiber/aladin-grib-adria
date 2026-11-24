@@ -9,13 +9,13 @@ All times are UTC.
 | Term | Meaning | GRIB1 keys |
 |---|---|---|
 | run | ALADIN model run, `YYYYMMDDHH` with hour 00/06/12/18 | `dataDate` (YYYYMMDD), `dataTime` (HH00): the **reference time** of every message |
-| step | forecast hour 0..72 (`region.FORECAST_HOURS` = 72, so 73 steps) | `stepUnits` = 1 (hours), `P1` = step, `P2` = 0 |
+| step | forecast hour 0..72 for wind (`region.FORECAST_HOURS`, 73 steps), 0..96 for water (`region.MARINE_HOURS`, 97 steps) | `stepUnits` = 1 (hours), `P1` = step, `P2` = 0 |
 | valid time | run + step hours | what viewers show as the field's time |
 | time range indicator | 0: forecast valid at reference + P1 | `timeRangeIndicator` = 0 |
 
 - **Both files use the same reference time and steps for one run.** Example: run 2026112318 gives valid times 2026-11-23 18:00 (step 0) to 2026-11-26 18:00 (step 72).
 - **CHMI side.** The timestamp in a CHMI file name is the model run. Each source file holds 73 hourly steps (checked: 1,666,298 values = 73 x 22,826 grid points; the merged GRIB's step 72 is valid 2026-11-26 18:00 for run 2026-11-23 18:00).
-- **Copernicus side.** The window `[run, run + 72 h]` is requested from the hourly series, whose time stamps fall exactly on the hour (checked). Currents are **hourly means centred on the stamp** (NetCDF attribute `field_type = hourly_mean_centered_at_time_field`), waves are **instantaneous**. Both are written with time range indicator 0, i.e. a mean over the hour 17:30-18:30 is labelled 18:00 like an instantaneous field. The data are Copernicus' best estimate for those hours: the analysis for past hours and the latest forecast for later ones; which forecast cycle that is depends on when the job runs (`data_updated_utc` in `marine_meta.json` records the dataset update time; it is not part of the GRIB).
+- **Copernicus side.** The window `[reference time, reference time + 96 h]` is requested (the reference time is 00 UTC of the update day, not an ALADIN run) from the hourly series, whose time stamps fall exactly on the hour (checked). Currents are **hourly means centred on the stamp** (NetCDF attribute `field_type = hourly_mean_centered_at_time_field`), waves are **instantaneous**. Both are written with time range indicator 0, i.e. a mean over the hour 17:30-18:30 is labelled 18:00 like an instantaneous field. The data are Copernicus' best estimate for those hours: the analysis for past hours and the latest forecast for later ones; which forecast cycle that is depends on when the job runs (`data_updated_utc` in `marine_meta.json` records the dataset update time; it is not part of the GRIB).
 - **The time encoding differs between sources and CDO versions.** CHMI's raw files use time range indicator 1 at step 0 and 10 for later steps (`P1` = 0, `P2` = step; with indicator 10 the step is `P1*256 + P2`, and eccodes reports it as `step`). The container's CDO 2.0.4 rewrites **every** step as indicator 0 with `P1` = step (this is what is published, checked); newer CDO (checked: 2.6.6) keeps indicator 10 with `P1` = 0 and `P2` = step. The validator reads eccodes' derived `step` key and accepts indicator 0 and 10 for the wind file.
 
 ## 2. Region and grids
@@ -55,7 +55,7 @@ Both datasets share this grid to within 2e-6° (the wave grid's last longitude i
 | grid | `regular_ll` 226 x 146 | `regular_ll` 109 x 70 |
 | `resolutionAndComponentFlags` | 136 (increments given) | 0 (increments not given) |
 | packing | 12 bits/value, no bitmap | 12 bits/value, **bitmap** (land = missing, value 9999 inside the encoder only) |
-| messages | 438 = 6 parameters x 73 steps | 803 = 11 parameters x 73 steps |
+| messages | 438 = 6 parameters x 73 steps | 1067 = 11 parameters x 97 steps |
 
 Message order: **wind file: step by step** (CDO `merge` interleaves the variables: for each step the parameters 2, 31, 32, 130, 131, 11, i.e. the order of `VARS`; checked on the published file and the CI-built file). **Water file: parameter by parameter**, steps ascending, in the order of `marine_grib.FIELDS`. Readers must not depend on either order; the validator does not.
 
@@ -100,16 +100,16 @@ Codes are NCEP GRIB1 table 2 (confirmed by eccodes for the wave names; eccodes h
 One message = 8 (indicator) + 28 (PDS) + 32 (GDS) + [bitmap section] + data section + 4 (end) bytes; the data section is 11 bytes of header plus `ceil(12 * valid_points / 8)`, padded to an even length.
 
 - Wind, no bitmap: `72 + 11 + ceil(12 n / 8)` (+1 if odd). For n = 32,996: 49,578 B; x 438 = **21,715,164 B** (measured on the CI container: identical). Previous box (n = 22,826): 34,322 B, 15,033,036 B.
-- Water, bitmap: bitmap section = 6 + `ceil(n / 8)` (padded to even) = 960 B for n = 7,630, plus data for the valid points only. Measured: 803 messages, **5,317,466 B** (about 6.6 KB per message, 51 % land). Before the north extension (109 x 48): 4,299,262 B.
-- On the Pages site every file exists twice (timestamped and `_latest`), about 54 MB in total.
+- Water, bitmap: bitmap section = 6 + `ceil(n / 8)` (padded to even) = 960 B for n = 7,630, plus data for the valid points only. Measured: 1067 messages, **7,065,674 B** (about 6.6 KB per message, 51 % land); with 73 steps (803 messages) it was 5,317,466 B, before the north extension (109 x 48) 4,299,262 B.
+- On the Pages site every file exists twice (timestamped and `_latest`), about 57 MB in total.
 
 ## 7. What `grib_validate.py` enforces
 
-Common: edition 1; every message has the expected reference time, `stepUnits` 1, grid size and corners (within 2e-3°); per parameter exactly 73 messages with steps 0..72 once each; no field without a valid value; finite values; values within the ranges below.
+Common: edition 1; every message has the expected reference time, `stepUnits` 1, grid size and corners (within 2e-3°); per parameter exactly 73 (wind) or 97 (water) messages with steps 0..72 / 0..96 once each; no field without a valid value; finite values; values within the ranges below.
 
 | | Wind | Water |
 |---|---|---|
-| messages / parameters | 438 / {2, 31, 32, 130, 131, 11} | 803 / {49, 50, 100-108} |
+| messages / parameters | 438 / {2, 31, 32, 130, 131, 11} | 1067 / {49, 50, 100-108} |
 | time range indicator | 0 or 10 | 0 |
 | ranges | MSLP 85,000-110,000 Pa; speed 0-80 m/s; direction -0.5..360.5; gust components -100..100 m/s; T2m 230-330 K | currents -3..3 m/s; wave and swell heights 0-15 m; periods 0-25 s; directions -0.5..360.5 |
 | mask | - | same missing count in every step; missing share 0.25-0.75 |

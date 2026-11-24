@@ -4,7 +4,7 @@
 For each asset (wind, marine) the new file is used when its job succeeded; otherwise the previously
 published file is kept and the page shows a warning. Also writes status.json, index.html and README.md.
 
-Usage: build_site.py --ts YYYYMMDDHH --wind-result R --marine-result R --prev DIR --wind DIR --marine DIR --out DIR
+Usage: build_site.py --wind-ts YYYYMMDDHH --marine-ts YYYYMMDD00 --wind-result R --marine-result R --prev DIR --wind DIR --marine DIR --out DIR
 """
 import argparse
 import hashlib
@@ -14,7 +14,7 @@ import os
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import region
 
@@ -24,6 +24,7 @@ ATTRIBUTION = ("Generated using E.U. Copernicus Marine Service Information; "
 ASSETS = {
     "wind": {
         "title": "Wind (ALADIN)",
+        "label": "ALADIN run",
         "main": "aladin_adriacenter_{run}.grb",
         "latest": "aladin_adriacenter_latest.grb",
         "extra": "aladin_wind_{run}.png",
@@ -32,6 +33,7 @@ ASSETS = {
     },
     "marine": {
         "title": "Water (Copernicus)",
+        "label": "reference time",
         "main": "copernicus_adriacenter_{run}.grb",
         "latest": "copernicus_adriacenter_latest.grb",
         "extra": None,
@@ -59,6 +61,8 @@ def sha256(path):
 
 
 def fmt_run(run):
+    if not run:
+        return "an unknown run"
     return f"{run[0:4]}-{run[4:6]}-{run[6:8]} {run[8:10]} UTC"
 
 
@@ -150,7 +154,7 @@ def status_line(spec, entry, name):
     title = spec["title"]
     if entry["state"] == "missing":
         return f"{title}: not available yet"
-    what = f"run {fmt_run(entry['run'])}" if name == "wind" else f"valid for ALADIN run {fmt_run(entry['run'])}"
+    what = f"run {fmt_run(entry['run'])}" if name == "wind" else f"reference time {fmt_run(entry['run'])}"
     if entry["state"] == "stale":
         return f"{title}: {what}, STALE since {fmt_utc(entry['failed_since_utc'])}{model_text(entry)}"
     text = f"{title}: {what}, OK"
@@ -166,16 +170,20 @@ def warnings(status):
     for name, spec in ASSETS.items():
         entry = status["assets"][name]
         if entry["state"] == "stale":
-            out.append(f"The update for ALADIN run {fmt_run(entry['failed_for'])} failed for {spec['title']}. "
-                       f"Showing data for run {fmt_run(entry['run'])} (stale since {fmt_utc(entry['failed_since_utc'])}).")
+            out.append(f"The update to {spec['label']} {fmt_run(entry['failed_for'])} failed for {spec['title']}. "
+                       f"Showing {spec['label']} {fmt_run(entry['run'])} (stale since {fmt_utc(entry['failed_since_utc'])}).")
         elif entry["state"] == "missing":
-            out.append(f"{spec['title']} is not available: the update for ALADIN run "
+            out.append(f"{spec['title']} is not available: the update to {spec['label']} "
                        f"{fmt_run(entry['failed_for'])} failed and there is no earlier file.")
-    runs = {name: e["run"] for name, e in status["assets"].items() if e.get("run")}
-    if len(set(runs.values())) > 1:
-        out.append("Wind and water files belong to different ALADIN runs: " +
-                   ", ".join(f"{ASSETS[n]['title']} {fmt_run(r)}" for n, r in runs.items()) + ".")
+    wind, marine = status["assets"]["wind"].get("run"), status["assets"]["marine"].get("run")
+    if wind and marine and run_end(marine, region.MARINE_HOURS) < run_end(wind, region.FORECAST_HOURS):
+        out.append(f"The water file (to {fmt_run(run_end(marine, region.MARINE_HOURS).strftime('%Y%m%d%H'))}) ends "
+                   f"before the wind file (to {fmt_run(run_end(wind, region.FORECAST_HOURS).strftime('%Y%m%d%H'))}).")
     return out
+
+
+def run_end(run, hours):
+    return datetime.strptime(run, "%Y%m%d%H") + timedelta(hours=hours)
 
 
 def human_size(path):
@@ -222,10 +230,12 @@ def render_readme(status, files):
         "- **Wind source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model, Lambert 2.3km grid",
         "- **Water source**: Copernicus Marine, Mediterranean Sea Physics and Waves Analysis and Forecast, 1/24° grid",
         f"- **Region**: Adriatic Sea ({region.LON_MIN}-{region.LON_MAX}°E, {region.LAT_MIN}-{region.LAT_MAX}°N)",
-        f"- **Time frame**: one ALADIN run, hourly steps 0-{region.FORECAST_HOURS} (the water file uses the same run)",
+        f"- **Time frame**: wind: one ALADIN run, hourly steps 0-{region.FORECAST_HOURS}; "
+        f"water: from 00 UTC of the day of the latest Copernicus update, hourly steps 0-{region.MARINE_HOURS}, "
+        "so it always extends past the wind forecast",
         f"- **Wind resolution**: {region.DX}° (~2.2 km) regular lat-lon grid",
         "- **Water resolution**: native 1/24° (~4 km) points, not regridded",
-        "- **Update frequency**: roughly every 6 hours by CHMI, processed here when GitHub runs the workflow",
+        "- **Update frequency**: wind every 6 hours (CHMI), water up to three times a day (Copernicus); each file is rebuilt when its data is new",
         "- **Wind file variables**:",
         "  - Mean Sea Level Pressure (MSLP)",
         "  - Wind Speed and Direction at 10m",
@@ -253,14 +263,15 @@ def comparable(status):
     return None if status is None else {k: v for k, v in status.items() if k != "updated_utc"}
 
 
-def build(ts, results, dirs, prev_dir, out_dir, now):
+def build(tss, results, dirs, prev_dir, out_dir, now):
     """Build the site in out_dir. Returns (status, outcomes, changed)."""
     os.makedirs(out_dir, exist_ok=True)
     status = {"schema": 1, "updated_utc": now, "assets": {}}
     outcomes, files = {}, []
     for name, spec in ASSETS.items():
         prev = previous_state(prev_dir, name)
-        new = new_asset(spec, dirs.get(name), ts)
+        ts = tss.get(name) or None
+        new = new_asset(spec, dirs.get(name), ts) if ts else None
         outcome, state = decide(results[name], new, prev, ts, now)
         outcomes[name], status["assets"][name] = outcome, state
         if outcome == "new":
@@ -281,7 +292,8 @@ def build(ts, results, dirs, prev_dir, out_dir, now):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--ts", required=True)
+    p.add_argument("--wind-ts", default="", help="ALADIN run of this attempt, YYYYMMDDHH (empty: none)")
+    p.add_argument("--marine-ts", default="", help="water reference time of this attempt, YYYYMMDDHH (empty: none)")
     for name in ASSETS:
         p.add_argument(f"--{name}-result", required=True, choices=["success", "failure", "skipped", "cancelled"])
         p.add_argument(f"--{name}", dest=f"{name}_dir", default=None)
@@ -289,8 +301,9 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("--now", default=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     args = p.parse_args(argv)
-    if not re.fullmatch(r"\d{10}", args.ts):
-        p.error("--ts must be YYYYMMDDHH")
+    for opt in (args.wind_ts, args.marine_ts):
+        if opt and not re.fullmatch(r"\d{10}", opt):
+            p.error("--wind-ts / --marine-ts must be YYYYMMDDHH")
     if args.prev and not os.path.isdir(args.prev):
         # Omit --prev only when nothing is published yet. A missing directory here would turn every
         # failed asset into "missing" and the deploy would remove its published file.
@@ -298,9 +311,10 @@ def main(argv=None):
 
     results = {"wind": args.wind_result, "marine": args.marine_result}
     dirs = {"wind": args.wind_dir, "marine": args.marine_dir}
-    status, outcomes, changed = build(args.ts, results, dirs, args.prev, args.out, args.now)
+    tss = {"wind": args.wind_ts, "marine": args.marine_ts}
+    status, outcomes, changed = build(tss, results, dirs, args.prev, args.out, args.now)
 
-    lines = [f"### Site for ALADIN run {fmt_run(args.ts)}", ""]
+    lines = [f"### Site: wind {fmt_run(args.wind_ts)}, water {fmt_run(args.marine_ts)}", ""]
     for name, spec in ASSETS.items():
         lines.append(f"- {status_line(spec, status['assets'][name], name)} (job: {results[name]}, outcome: {outcomes[name]})")
     for w in warnings(status):

@@ -2,7 +2,7 @@ name: Process ALADIN GRIB Files
 
 on:
   schedule:
-    - cron: '5 * * * *'  # Every hour at :05 (GitHub fires only a few of these per day)
+    - cron: '*/15 * * * *'  # GitHub skips many scheduled slots; a dense schedule keeps the delay to about 15-30 minutes
   workflow_dispatch:  # Manual trigger
     inputs:
       dry_run:
@@ -10,7 +10,7 @@ on:
         type: boolean
         default: false
       force:
-        description: "Process both assets even if the latest run was already processed"
+        description: "Process both assets even if their latest data was already processed"
         type: boolean
         default: false
       simulate:
@@ -35,6 +35,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       timestamp: ${{ steps.checker.outputs.timestamp }}
+      marine_key: ${{ steps.marine_check.outputs.key }}
+      marine_ref: ${{ steps.marine_check.outputs.ref }}
       need_wind: ${{ steps.decide.outputs.need_wind }}
       need_marine: ${{ steps.decide.outputs.need_marine }}
 
@@ -62,6 +64,16 @@ jobs:
           cat /tmp/checker.log
           echo "timestamp=${ts}" >> $GITHUB_OUTPUT
 
+      - name: Check for new Copernicus data
+        id: marine_check
+        run: |
+          out=$(docker run --rm aladin-checker:latest check_marine.py 2>/tmp/marine_check.log) && rc=0 || rc=$?
+          cat /tmp/marine_check.log
+          if [ "$rc" = "0" ]; then
+            echo "key=${out%% *}" >> $GITHUB_OUTPUT
+            echo "ref=${out##* }" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check if wind was already processed
         id: wind_marker
         if: steps.checker.outputs.timestamp != ''
@@ -73,30 +85,27 @@ jobs:
 
       - name: Check if marine was already processed
         id: marine_marker
-        if: steps.checker.outputs.timestamp != ''
+        if: steps.marine_check.outputs.key != ''
         uses: actions/cache/restore@v6
         with:
           path: .processed-marker
-          key: processed-marine-${{ steps.checker.outputs.timestamp }}
+          key: processed-marine-${{ steps.marine_check.outputs.key }}
           lookup-only: true
 
       - name: Decide what to process
         id: decide
         env:
           TS: ${{ steps.checker.outputs.timestamp }}
+          MARINE_KEY: ${{ steps.marine_check.outputs.key }}
           WIND_DONE: ${{ steps.wind_marker.outputs.cache-hit }}
           MARINE_DONE: ${{ steps.marine_marker.outputs.cache-hit }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
         run: |
           need_wind=false
           need_marine=false
-          if [ -z "$TS" ]; then
-            echo "No new complete data available."
-          else
-            if [ "$FORCE" = "true" ] || [ "$WIND_DONE" != "true" ]; then need_wind=true; fi
-            if [ "$FORCE" = "true" ] || [ "$MARINE_DONE" != "true" ]; then need_marine=true; fi
-            echo "Run $TS: wind needed=$need_wind, marine needed=$need_marine"
-          fi
+          if [ -n "$TS" ] && { [ "$FORCE" = "true" ] || [ "$WIND_DONE" != "true" ]; }; then need_wind=true; fi
+          if [ -n "$MARINE_KEY" ] && { [ "$FORCE" = "true" ] || [ "$MARINE_DONE" != "true" ]; }; then need_marine=true; fi
+          echo "Wind run '$TS': needed=$need_wind; Copernicus update '$MARINE_KEY': needed=$need_marine"
           echo "need_wind=$need_wind" >> $GITHUB_OUTPUT
           echo "need_marine=$need_marine" >> $GITHUB_OUTPUT
 
@@ -171,7 +180,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      TS: ${{ needs.check.outputs.timestamp }}
+      REF: ${{ needs.check.outputs.marine_ref }}
 
     steps:
       - name: Checkout repository
@@ -209,7 +218,7 @@ jobs:
             -e COPERNICUSMARINE_SERVICE_USERNAME \
             -e COPERNICUSMARINE_SERVICE_PASSWORD \
             aladin-processor:latest \
-            python3 /app/marine_grib.py --timestamp "$TS"
+            python3 /app/marine_grib.py --timestamp "$REF"
         timeout-minutes: 15
 
       - name: List generated files
@@ -220,7 +229,7 @@ jobs:
         with:
           name: marine
           path: |
-            data/copernicus_adriacenter_${{ needs.check.outputs.timestamp }}.grb
+            data/copernicus_adriacenter_${{ needs.check.outputs.marine_ref }}.grb
             data/marine_meta.json
           if-no-files-found: warn
           overwrite: true
@@ -234,6 +243,7 @@ jobs:
     timeout-minutes: 15
     env:
       TS: ${{ needs.check.outputs.timestamp }}
+      REF: ${{ needs.check.outputs.marine_ref }}
 
     steps:
       - name: Checkout repository
@@ -282,7 +292,8 @@ jobs:
           prev_args=()
           if [ "$SITE_EXISTS" = "true" ]; then prev_args=(--prev prev); fi
           python3 build_site.py \
-            --ts "$TS" \
+            --wind-ts "$TS" \
+            --marine-ts "$REF" \
             --wind-result "${{ needs.wind.result }}" \
             --marine-result "${{ needs.marine.result }}" \
             "${prev_args[@]}" \
@@ -312,7 +323,7 @@ jobs:
 
       - name: Prepare the processed marker
         if: ${{ env.DEPLOY == 'true' && (steps.deploy.outcome == 'success' || steps.site.outputs.changed == 'false') }}
-        run: echo "$TS" > .processed-marker
+        run: echo "$TS $REF" > .processed-marker
 
       - name: Remember the processed wind run
         if: ${{ env.DEPLOY == 'true' && (steps.deploy.outcome == 'success' || steps.site.outputs.changed == 'false') && steps.site.outputs.save_wind_marker == 'true' }}
@@ -326,4 +337,4 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .processed-marker
-          key: processed-marine-${{ needs.check.outputs.timestamp }}
+          key: processed-marine-${{ needs.check.outputs.marine_key }}

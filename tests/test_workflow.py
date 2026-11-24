@@ -84,6 +84,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(re.findall(r"key: processed-\$\{\{", self.text)), 2)  # lookup + save, wind (unchanged key)
         self.assertEqual(len(re.findall(r"key: processed-marine-\$\{\{", self.text)), 2)
 
+    def test_each_asset_is_decided_by_its_own_data(self):
+        check = self.jobs["check"]
+        self.assertIn("check_marine.py", check)
+        # the water marker is keyed by the Copernicus update, never by the ALADIN run
+        self.assertIn("key: processed-marine-${{ steps.marine_check.outputs.key }}", check)
+        self.assertIn("key: processed-marine-${{ needs.check.outputs.marine_key }}", self.jobs["publish"])
+        self.assertNotIn("processed-marine-${{ needs.check.outputs.timestamp }}", self.text)
+        # an empty answer of one checker must not stop the other asset
+        self.assertIn('[ -n "$TS" ]', check)
+        self.assertIn('[ -n "$MARINE_KEY" ]', check)
+
+    def test_the_marine_job_builds_for_the_reference_time_not_the_aladin_run(self):
+        marine = self.jobs["marine"]
+        self.assertIn('--timestamp "$REF"', marine)
+        self.assertNotIn("$TS", marine)
+        self.assertIn("--marine-ts", self.jobs["publish"])
+
+    def test_the_schedule_is_dense_enough_to_notice_new_data_within_minutes(self):
+        self.assertRegex(self.text, r"cron: '\*/(5|10|15) \* \* \* \*'")
+
     def test_the_wind_job_pins_the_run_to_the_one_the_checker_found(self):
         self.assertIn('-e ALADIN_RUN_TIMESTAMP="$TS"', self.jobs["wind"])
 

@@ -15,11 +15,11 @@ python3 -m unittest discover -s tests -t .
 
 # build the water file locally (Python 3.10-3.13; the toolbox does not install on very new Pythons)
 python3 scripts/with_secrets.py -- uv run --python 3.12 --with copernicusmarine==2.5.1 --with eccodes==2.50.1 \
-  python marine_grib.py --timestamp 2026112318 --outdir out
+  python marine_grib.py --timestamp 2026112400 --outdir out
 
 # validate a file
 python3 grib_validate.py wind   data/aladin_adriacenter_2026112318.grb   2026112318   # needs eccodes
-python3 grib_validate.py marine out/copernicus_adriacenter_2026112318.grb 2026112318
+python3 grib_validate.py marine out/copernicus_adriacenter_2026112400.grb 2026112400
 
 # lint the workflows
 uv tool run --from actionlint-py actionlint .github/workflows/*.yml
@@ -32,7 +32,7 @@ uv tool run --from actionlint-py actionlint .github/workflows/*.yml
 | process the latest run again (e.g. after changing the box) | `gh workflow run process-grib.yml -f force=true` |
 | test a branch without publishing | `gh workflow run process-grib.yml --ref <branch> -f dry_run=true -f force=true`, then `gh run watch <id>` and `gh run download <id> -n site` |
 | see the previous-file and warning behaviour | add `-f simulate=wind` or `-f simulate=marine` to a dry run |
-| forget that a run was processed | `gh cache delete processed-<run>` (wind) or `processed-marine-<run>` |
+| forget that data was processed | `gh cache delete processed-<run>` (wind) or `processed-marine-<update key>` (water; `python3 check_marine.py` prints the key) |
 | inspect what is published | `gh api repos/k-schreiber/aladin-grib-adria/git/trees/gh-pages`, or open `status.json` on the Pages site |
 
 After a dry run, download the `site` artifact and run `grib_validate.py` on both files: that is the independent check of what the container produced. Dry runs from branches never deploy and never save markers (`DEPLOY`, see [publishing.md](publishing.md)).
@@ -41,7 +41,7 @@ After a dry run, download the `site` artifact and run `grib_validate.py` on both
 
 | Symptom | Likely cause | Look at |
 |---|---|---|
-| nothing updates for hours | GitHub fires the hourly schedule only 2-5 times a day, or CHMI has no complete run yet | `gh run list --workflow=process-grib.yml` |
+| nothing updates for a while | GitHub skips scheduled slots (even at 15 minutes), CHMI has no complete run yet, or Copernicus has no update (waves 2x, currents 1x per day) | `gh run list --workflow=process-grib.yml` |
 | wind STALE | wind job failed: CHMI upload incomplete (3 attempts), CDO error, or validation (message count, grid, time) | `wind` job log, step "Process GRIB files" / "Validate the wind GRIB" |
 | water STALE | credentials missing or rejected, Copernicus outage, a new dataset version changed structure (grid, variables, time axis), timeout | `marine` job log; the error line starts with `Error: marine GRIB failed:` |
 | `No such file or directory: 'bzip2'` (or another tool) | apt layer is installed without recommends and the tool is not listed | `Dockerfile`; `tests/test_region.py` should have caught it |
@@ -59,19 +59,19 @@ After a dry run, download the `site` artifact and run `grib_validate.py` on both
 
 ## Checklists
 
-**After merging a change that alters the wind grid** (or any change that must reach the published wind file): the wind marker of the current run still exists, so the old file stays until the next ALADIN run. Run once with `force`.
+**After merging a change that alters the wind grid** (or any change that must reach the published wind file): the wind marker of the current run still exists, so the old file stays until the next ALADIN run. Run once with `force`; the same holds for the water file until the next Copernicus update.
 
 **Change the region** (`region.py`): keep the box a whole number of 0.02° steps (the module raises otherwise); run `python3 scripts/make_coastline.py`; check that ALADIN covers the box (remap onto the grid, count missing points) and that the Copernicus lattice has points in it; update sizes in [grib-format.md](grib-format.md) if you publish them; run the tests; after merging run once with `force`. The coastline, grid, validators, README text and pages all follow `region.py`.
 
-**Add a water field:** add it to `marine_grib.FIELDS` (variable, GRIB1 parameter, level type, source) and `grib_validate.MARINE_RANGES`, update the parameter table in [grib-format.md](grib-format.md), update message counts in the tests (803 = 11 x 73), and check the parameter in the viewers.
+**Add a water field:** add it to `marine_grib.FIELDS` (variable, GRIB1 parameter, level type, source) and `grib_validate.MARINE_RANGES`, update the parameter table in [grib-format.md](grib-format.md), update message counts in the tests (1067 = 11 x 97), and check the parameter in the viewers.
 
 **Add a wind variable:** add it to `VARS` in `load_and_merge_gribs.py` and `REQUIRED_VARS` in `check_availability.py`, its parameter to `grib_validate.WIND_RANGES`, and update the tests (438 = 6 x 73).
 
 ## Known limitations and inconsistencies
 
-- **Schedule.** Few runs per day; a static page cannot show that nothing ran (a data-age display was considered and declined).
+- **Schedule.** The cron fires every 15 minutes but GitHub skips many slots; a static page cannot show that nothing ran (a data-age display was considered and declined). A reliable trigger would need an external scheduler calling `workflow_dispatch` ([decisions.md](decisions.md) 26).
 - GRIB1 cannot store the 1/24° increment; the water file omits it ([grib-format.md](grib-format.md)).
 - The README names the local container `aladin-grib`, `docker-compose.yml` names it `aladin-grib-processor`.
 - `fly.toml` has no `[mounts]` section although the README creates a volume *(not verified at runtime)*.
-- The self-hosted variant builds neither the water file nor serves the wind map.
+- The self-hosted variant builds the water file (`local_update_water.py`) but does not serve the wind map; its wind part still rebuilds every hour without an availability check.
 - Gust parameters 130/131 are mapped to the CHMI gust variables by inference *(not verified)*.

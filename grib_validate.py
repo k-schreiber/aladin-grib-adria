@@ -14,6 +14,7 @@ import region
 
 MISSING = 9999.0
 STEPS = region.FORECAST_HOURS + 1
+MARINE_STEPS = region.MARINE_HOURS + 1
 CORNER_TOLERANCE = 2e-3  # GRIB1 stores corner coordinates in whole millidegrees
 
 # parameter -> (min, max) of the valid values. Directions allow 0.5 degree for packing overshoot.
@@ -135,7 +136,7 @@ def validate_wind(path, ts, ni=region.NX, nj=region.NY, steps=STEPS):
         raise ValidationError("; ".join(problems))
 
 
-def validate_marine(path, ts, lons=None, lats=None, steps=STEPS):
+def validate_marine(path, ts, lons=None, lats=None, steps=MARINE_STEPS):
     lons = region.MARINE_LONS if lons is None else lons
     lats = region.MARINE_LATS if lats is None else lats
     messages = scan(path)

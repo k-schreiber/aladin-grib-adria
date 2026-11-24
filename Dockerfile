@@ -39,7 +39,7 @@ RUN pip3 install --no-cache-dir \
 WORKDIR /app
 
 # Copy application files
-COPY load_and_merge_gribs.py region.py marine_grib.py grib_validate.py server.py start.sh process.cron adriatic_coastline.json /app/
+COPY load_and_merge_gribs.py region.py marine_grib.py check_marine.py local_update_water.py grib_validate.py server.py start.sh process.cron adriatic_coastline.json /app/
 RUN chmod +x /app/*.sh /app/*.py
 
 # Install crontab

@@ -8,7 +8,11 @@ LAT_MAX = 45.4  # 45°24'N: a whole number of DY steps, and reaches 45°22'N on 
 DX = 0.02
 DY = 0.02
 
-FORECAST_HOURS = 72  # both GRIBs hold the hourly steps 0..FORECAST_HOURS of one ALADIN run
+FORECAST_HOURS = 72  # the wind GRIB holds the hourly steps 0..FORECAST_HOURS of one ALADIN run
+# The water GRIB is independent of ALADIN runs: its reference time is 00 UTC of the day of the newest
+# Copernicus update and it holds MARINE_HOURS + 1 hourly steps. Worst case, the newest wind run (18 UTC) ends
+# 90 h after 00 UTC of its day, and its water file may only be replaced the next morning, so 96 h always covers it.
+MARINE_HOURS = 96
 
 # Copernicus Med-MFC grid (currents and waves share it): 1/24 degree from this origin.
 COPERNICUS_LON0 = -17.291666

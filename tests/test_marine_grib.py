@@ -62,7 +62,7 @@ class PureFunctionTests(unittest.TestCase):
         self.assertNotIn("dataset_version", calls[0])
         self.assertEqual(calls[0]["dataset_id"], "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m")
         self.assertEqual((calls[0]["start_datetime"], calls[0]["end_datetime"]),
-                         ("2026-11-23T18:00:00", "2026-11-26T18:00:00"))
+                         ("2026-11-23T18:00:00", "2026-11-27T18:00:00"))
         self.assertTrue(path.endswith("currents.nc"))
 
     def catalogue(self, now):
@@ -119,11 +119,11 @@ class PureFunctionTests(unittest.TestCase):
         self.assertGreaterEqual(region.MARINE_LATS[-1], 45 + 22 / 60)  # reaches 45°22'
         self.assertLessEqual(region.MARINE_LATS[-1], region.LAT_MAX + 1e-4)
 
-    def test_forecast_window_is_73_hourly_steps(self):
+    def test_forecast_window_is_97_hourly_steps(self):
         times = self.mg.expected_times(T0)
-        self.assertEqual(times.size, region.FORECAST_HOURS + 1)
+        self.assertEqual(times.size, region.MARINE_HOURS + 1)
         self.assertEqual(str(times[0]), "2026-11-23T18")
-        self.assertEqual(str(times[-1]), "2026-11-26T18")
+        self.assertEqual(str(times[-1]), "2026-11-27T18")
 
     def axes(self, lons=None, lats=None, times=None):
         np = self.np
@@ -269,7 +269,7 @@ class WriteGribTests(unittest.TestCase):
     def test_a_full_size_file_has_the_expected_shape_and_passes_validation(self):
         np = self.np
         lons, lats = np.array(region.MARINE_LONS), np.array(region.MARINE_LATS)
-        steps = region.FORECAST_HOURS + 1
+        steps = region.MARINE_HOURS + 1
         land = np.zeros((len(lats), len(lons)), dtype=bool)
         land[:, :40] = True  # 37 % land
         data = {}
@@ -327,7 +327,7 @@ class LoadDataTests(unittest.TestCase):
         data, lons, lats, systems = self.mg.load_data(*self.paths(), T0)
         self.assertEqual((lons.size, lats.size), (region.MARINE_NX, region.MARINE_NY))
         for name, _, _, _ in self.mg.FIELDS:
-            self.assertEqual(data[name].shape, (73, region.MARINE_NY, region.MARINE_NX))
+            self.assertEqual(data[name].shape, (region.MARINE_HOURS + 1, region.MARINE_NY, region.MARINE_NX))
         uo = data["uo"][0]
         self.assertEqual(uo[0, 0], 1.0)  # full grid cell (row 0, column 1): one extra column lies west of the region
         self.assertEqual(uo[-1, -1], 1000 * 69 + 109)  # the extra row and column beyond the region are gone

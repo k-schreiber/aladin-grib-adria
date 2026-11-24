@@ -1,6 +1,6 @@
 # Decisions
 
-Why things are the way they are, and what was rejected. Entries 1-7 are **reconstructed** from the git history and the code; entries 8-25 were made with the water file and are **ground truth** (dates 2026-11-24 unless stated). "Owner" is the repository owner.
+Why things are the way they are, and what was rejected. Entries 1-7 are **reconstructed** from the git history and the code; entries 8-26 were made with the water file and are **ground truth** (dates 2026-11-24 unless stated). "Owner" is the repository owner.
 
 ## Reconstructed (earlier history)
 
@@ -18,7 +18,7 @@ Why things are the way they are, and what was rejected. Entries 1-7 are **recons
 
 ## The water file
 
-9. **A second asset, same time frame.** Reference time = ALADIN run, steps 0-72, same region, GRIB1 as the wind file. Built whenever a new ALADIN run is found; Copernicus updates between runs are ignored.
+9. **A second asset, same format.** Same region and GRIB1 conventions as the wind file. *Superseded in part by 26: the time frame and the trigger.*
 10. **Native 1/24° points, no regridding** (owner). Smaller, no false precision, no coast shrinkage from interpolating a masked field. Rejected: the 0.02° wind grid (4.3x more points, interpolated).
 11. **GRIB1 with the grid increments "not given"** (variant B). GRIB1 holds increments in whole millidegrees, so 1/24° would be stored wrong (about 2.5 km of decoded error in latitude); readers derive the spacing from the corners (about 0.02 km). qtVlm opened this and the two alternatives: A (stored, rounded increments; same display, larger error in other readers) and C (GRIB2, exact but not the wind file's format and with different wave codes in OpenCPN). Owner chose B.
 12. **Written with eccodes, not CDO.** CDO's default NetCDF-to-GRIB1 header is unusable and differs between versions (container 2.0.4, newer 2.6.6); eccodes gives explicit control and identical output on Python 3.10 and 3.12.
@@ -30,7 +30,7 @@ Why things are the way they are, and what was rejected. Entries 1-7 are **recons
 ## The pipeline
 
 17. **Independent `wind` and `marine` jobs and one shared `publish`.** Because each deploy replaces `gh-pages` (1), keeping the previous file of a failed asset requires one final step that builds the site from "new where valid, else previous from `gh-pages`". Rejected: publishing the water file as a release asset (not next to the wind file); a second workflow that re-adds the file after each deploy (gap, race); a guarded step inside the old deploy (kept the old flow tangled).
-18. **Per-asset markers.** The wind key stays `processed-<run>` (no migration); the water file adds `processed-marine-<run>`. A failed asset has no marker and is retried; the other is not re-run.
+18. **Per-asset markers.** The wind key stays `processed-<run>` (no migration); the water file adds `processed-marine-<key>` (key = Copernicus update time, see 26). A failed asset has no marker and is retried; the other is not re-run.
 19. **Older-run guard.** `check` can return an older run when a CHMI directory listing fails; `publish` never replaces a run by an older one.
 20. **Deploy only when something changed** (SHA-256), only on `main` and outside dry runs (`DEPLOY`); `dry_run`, `force`, `simulate`; one concurrency group per branch; timeouts on every job. A branch can never deploy by accident. The published site must be readable: only a missing `gh-pages` branch means "first deploy"; any other failure to check it out fails the job, because an empty `prev` would turn every failed asset into "missing" and the deploy would delete its published file.
 21. **Status block and warning on both pages** when a file is stale; **no data-age display** (owner): GitHub starts the hourly schedule only 2-5 times a day, and a static page cannot show that nothing ran.
@@ -38,7 +38,8 @@ Why things are the way they are, and what was rejected. Entries 1-7 are **recons
 23. **One image, with `copernicusmarine` installed straight into the wind `Dockerfile`** (owner: simplicity, one build). Required care: the toolbox needs numpy 2, so matplotlib is pinned to 3.10 in the same pip pass (otherwise Debian's matplotlib 3.5 fails at import, a runtime crash of the wind job); a build-time import check; the apt layer without recommends (smaller; `ncview` dropped) with `bzip2` listed explicitly (found missing by the first dry run). The `gha` build cache works now (`docker/build-push-action`); only `wind` writes it. Rejected: building once and pulling from GHCR (small gain at 2-5 runs a day).
 24. **Validation is structural and generous** (`grib_validate.py`): a missing-value marker only where a bitmap exists, the step read with eccodes' `step`, directions up to 360.5, wind time range indicator 0 or 10. The aim is that a valid file is never rejected (which would freeze an asset) while a broken one never replaces a good one.
 25. **`unittest`, stdlib only, optional libraries skip** so a bare Python is green and CI runs everything; every important guard was verified by breaking the code once ([testing.md](testing.md)).
+26. **Independent triggers, water decoupled from ALADIN runs** (2026-11-24, owner). Measured update times: waves twice a day (source files about 01:45 and 17:45 UTC, catalogue 03:50 and 18:45), currents once a day (about 12 UTC), CHMI runs complete 3.1-4.5 h after run time. Rebuilding the water file per ALADIN run therefore mostly repeated old data, and the wind lag was 1-4.5 h because GitHub fires the hourly schedule only 2-5 times a day. Now: `check` runs `check_availability.py` (wind) and `check_marine.py` (water) separately; each asset is built exactly when its own data is new (markers `processed-<run>` and `processed-marine-<update key>`); the water file has its own reference time (00 UTC of the update day) and 96 h so it always covers the newest wind run (coverage rule in [marine-pipeline.md](marine-pipeline.md)); the cron runs every 15 minutes. The "different runs" warning became "water file ends before the wind file". The local container builds the water file too (`local_update_water.py`).
 
 ## Considered and not done
 
-A data-age display on the page (declined, 21); an external trigger for a reliable schedule; Stokes drift (13); GHCR build-once (23); a side-by-side comparison of dataset versions before following them (15).
+A data-age display on the page (declined, 21); an external trigger (cron service / Fly app calling `workflow_dispatch`, needs a PAT) and an in-run poll loop (26); Stokes drift (13); GHCR build-once (23); a side-by-side comparison of dataset versions before following them (15).

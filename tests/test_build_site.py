@@ -54,8 +54,9 @@ class SiteTests(unittest.TestCase):
 
     def build(self, ts, wind_result, marine_result, prev=None, wind=None, marine=None, now=NOW, out="site"):
         out_dir = self.path(out)
+        tss = ts if isinstance(ts, dict) else {"wind": ts, "marine": ts}
         status, outcomes, changed = build_site.build(
-            ts, {"wind": wind_result, "marine": marine_result}, {"wind": wind, "marine": marine}, prev, out_dir, now)
+            tss, {"wind": wind_result, "marine": marine_result}, {"wind": wind, "marine": marine}, prev, out_dir, now)
         return status, outcomes, changed, out_dir
 
     def files(self, d):
@@ -106,7 +107,17 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(self.read("site", "aladin_adriacenter_latest.grb"), "old-wind")
         for text in (self.read("site", "README.md"), self.read("site", "index.html")):
             self.assertIn("failed for Wind (ALADIN)", text)
-            self.assertIn("different ALADIN runs", text)
+            self.assertNotIn("ends before the wind file", text)
+
+    def test_a_water_file_that_ends_before_the_wind_file_is_flagged_and_a_covering_one_is_not(self):
+        # water 2026-11-23 00 + 96 h = 11-27 00; wind 11-24 12 + 72 h = 11-27 12
+        status, _, _, out = self.build({"wind": "2026112412", "marine": "2026112300"}, "success", "success", None,
+                                       self.artifact("wind", "2026112412"), self.artifact("marine", "2026112300"))
+        self.assertIn("ends before the wind file", self.read("site", "README.md"))
+        # water 11-24 00 + 96 h = 11-28 00 covers it
+        self.build({"wind": "2026112412", "marine": "2026112400"}, "success", "success", None,
+                   self.artifact("wind", "2026112412"), self.artifact("marine", "2026112400"), out="site2")
+        self.assertNotIn("ends before the wind file", self.read("site2", "README.md"))
 
     def test_a_failed_marine_job_keeps_the_previous_file(self):
         prev = self.prev(wind="2026112312", marine="2026112312")
@@ -195,7 +206,7 @@ class SiteTests(unittest.TestCase):
 
     def test_a_prev_directory_that_is_missing_is_an_error_not_an_empty_site(self):
         with self.assertRaises(SystemExit) as raised:
-            build_site.main(["--ts", "2026112318", "--wind-result", "failure", "--marine-result", "failure",
+            build_site.main(["--wind-ts", "2026112318", "--marine-ts", "2026112300", "--wind-result", "failure", "--marine-result", "failure",
                              "--prev", self.path("does-not-exist"), "--out", self.path("o")])
         self.assertEqual(raised.exception.code, 2)
 
@@ -276,8 +287,8 @@ class SiteTests(unittest.TestCase):
         os.environ.update(env)
         try:
             code = build_site.main([
-                "--ts", "2026112318", "--wind-result", "failure", "--marine-result", "success",
-                "--prev", self.prev(wind="2026112312"), "--marine", self.artifact("marine", "2026112318"),
+                "--wind-ts", "2026112318", "--marine-ts", "2026112300", "--wind-result", "failure", "--marine-result", "success",
+                "--prev", self.prev(wind="2026112312"), "--marine", self.artifact("marine", "2026112300"),
                 "--out", self.path("cli_site"), "--now", NOW])
         finally:
             for k, v in old.items():

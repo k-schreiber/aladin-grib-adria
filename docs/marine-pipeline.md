@@ -11,12 +11,14 @@ Product `MEDSEA_ANALYSISFORECAST_PHY_006_013` (physics) and `MEDSEA_ANALYSISFORE
 | currents | `cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m` | `uo`, `vo` (hourly mean, surface) | 10.48670/mds-00359 |
 | waves | `cmems_mod_med_wav_anfc_4.2km_PT1H-i` | `VHM0 VMDR VTPK VHM0_WW VMDR_WW VTM01_WW VHM0_SW1 VMDR_SW1 VTM01_SW1` (hourly, instantaneous) | 10.48670/mds-00373 |
 
-- Both reach about nine days into the future and hold the past, so the 72 h window of any recent ALADIN run is always covered.
+- Both reach about nine days into the future and hold the past, so the window of the water file (reference day + 96 h) is always available.
 - There is **no merged "total current" dataset** in this product (the Global product has one). Currents are ocean plus tide; the wave model's Stokes drift (`VSDX/VSDY`) is **not** added.
 - Access needs a free Copernicus Marine account. The toolbox reads `COPERNICUSMARINE_SERVICE_USERNAME` / `COPERNICUSMARINE_SERVICE_PASSWORD` from the environment.
 - Attribution is required and appears on both pages: "Generated using E.U. Copernicus Marine Service Information" with both DOIs.
 
-## Flow: `marine_grib.py --timestamp <run> [--outdir DIR]`
+## Flow: `marine_grib.py --timestamp <YYYYMMDD00> [--outdir DIR]`
+
+The timestamp is the **reference time** of the file: 00 UTC of the day of the newest Copernicus update, decided by `check_marine.py` (see below); steps 0..96 (`region.MARINE_HOURS`).
 
 Exit 0 only if a validated file was written. Credential values are never printed.
 
@@ -42,5 +44,13 @@ The toolbox picks the newest dataset version whose release time has passed. The 
 
 - Coast and channels: 4 km cells do not resolve the channels between the Croatian islands; about 51 % of the box is land and missing.
 - Currents are hourly **means** labelled with the centre of the hour; waves are instantaneous ([grib-format.md](grib-format.md) section 1).
-- The data vintage depends on when the job runs: the 00 UTC ALADIN run is processed before Copernicus' daily update, so its first hours come from the previous day's forecast cycle.
+- The data vintage is whatever Copernicus holds when the job runs; `data_updated_utc` records its update time.
 - The download volume reported by the toolbox for the waves (about 1.8 GB) is read in about 30-90 s; on a slow runner this could approach the 15-minute job timeout *(not seen)*.
+
+## Update frequency and the check: `check_marine.py`
+
+Measured on the original files and catalogue timestamps (2026-11): **waves** are written twice a day (about 01:45 and 17:45 UTC) and appear in the catalogue 1-2 h later (about 03:50 and 18:45 UTC); **currents** once a day around 11:30-12:15 UTC (earlier than the nominal 16:00), plus a monthly update on the 20th. The nominal times in the product descriptions are not what happens.
+
+`check_marine.py` (no credentials, `requests` only, runs in the checker image) reads the public STAC metadata, takes the newest *released* version of each dataset (`admp_released_date <= now`), and prints `<key> <reference time>`: the key is the latest `admp_updated_data` of the two datasets as `YYYYMMDDHHMM`, the reference time is 00 UTC of that day. The key names the workflow marker `processed-marine-<key>`, so the file is rebuilt exactly once per Copernicus update. If the metadata cannot be read, the check yields nothing and the water file simply is not rebuilt in that run.
+
+**Coverage rule.** The newest wind run (18 UTC) ends 90 h after 00 UTC of its day, and a water file may be replaced only the next morning, so 96 h from 00 UTC always covers the wind file; `build_site.py` warns if it ever does not.

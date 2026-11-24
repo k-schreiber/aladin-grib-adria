@@ -76,7 +76,8 @@ class PackagingTests(unittest.TestCase):
     def test_dockerfile_ships_the_files_the_wind_script_needs(self):
         with open(os.path.join(ROOT, "Dockerfile")) as f:
             copied = " ".join(re.findall(r"^COPY\s+(.*)$", f.read(), flags=re.M))
-        for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json", "marine_grib.py", "grib_validate.py"):
+        for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json", "marine_grib.py", "grib_validate.py",
+                     "check_marine.py", "local_update_water.py", "server.py", "start.sh", "process.cron"):
             self.assertIn(name, copied)
 
     def test_dockerfile_installs_every_external_tool_the_wind_script_runs(self):
@@ -91,6 +92,20 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("cdo", tools)
         for tool in tools - installed_elsewhere:
             self.assertRegex(dockerfile, re.compile(rf"^\s+{re.escape(tool)}\s*\\$", re.M), tool)
+
+    def test_the_checker_image_ships_both_checkers(self):
+        with open(os.path.join(ROOT, "Dockerfile.checker")) as f:
+            text = f.read()
+        self.assertIn("check_availability.py", text)
+        self.assertIn("check_marine.py", text)
+
+    def test_the_local_container_schedules_the_water_update_and_gets_the_credentials(self):
+        with open(os.path.join(ROOT, "process.cron")) as f:
+            self.assertRegex(f.read(), r"(?m)^\*/15 .*local_update_water\.py")
+        with open(os.path.join(ROOT, "docker-compose.yml")) as f:
+            text = f.read()
+        for key in ("COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"):
+            self.assertIn(key, text)
 
     def test_the_container_does_not_buffer_python_output(self):
         with open(os.path.join(ROOT, "Dockerfile")) as f:

@@ -6,7 +6,7 @@ Automated downloader, cutter, reprojection, and merger of CHMI Aladin 2.3km GRIB
 
 ## Run Via GitHub Actions
 
-A workflow is scheduled every hour (GitHub in practice starts it only a few times a day) and publishes the latest data to the `gh-pages` branch.
+A workflow is scheduled every 15 minutes (GitHub skips many slots, so the real delay is minutes to about half an hour), checks CHMI and Copernicus separately and rebuilds a file only when its own data is new: wind up to four times a day, water up to three times a day. The result is published to the `gh-pages` branch.
 No server setup required.
 
 The pipeline has four jobs:
@@ -19,7 +19,7 @@ The pipeline has four jobs:
 
 4. **publish** — assembles the site from the new files, or from the previously published ones if a job failed (so there is always a valid wind and water file), adds a status line and a warning if something is stale, and force-pushes a single-commit orphan to `gh-pages`.
 
-A failed file is retried at the next scheduled run. To try a change without publishing, start the workflow from a branch with `dry_run`; `force` reprocesses the latest run. More detail for development is in [docs](docs/README.md).
+A failed file is retried at the next scheduled run. To try a change without publishing, start the workflow from a branch with `dry_run`; `force` reprocesses the latest data. More detail for development is in [docs](docs/README.md).
 
 ## Wind Map
 
@@ -27,7 +27,7 @@ Each processing run renders a static PNG of 10m wind speed and direction over th
 
 ## Water File
 
-`copernicus_adriacenter_<run>.grb` holds the surface current (ocean and tide) and the waves (height, direction, period, wind sea and swell) from the Copernicus Mediterranean forecast. It covers the same run and the same hourly steps as the wind file, on the native 1/24° grid (not regridded), in the same GRIB1 format. Land points are missing values. It always uses the newest Copernicus dataset version, so values can change when Copernicus releases a new model.
+`copernicus_adriacenter_<run>.grb` holds the surface current (ocean and tide) and the waves (height, direction, period, wind sea and swell) from the Copernicus Mediterranean forecast. Its reference time is 00 UTC of the day of the latest Copernicus update and it holds hourly steps 0-96, so it always spans the 72 h of the newest wind file. It uses the native 1/24° grid (not regridded), in the same GRIB1 format. Land points are missing values. It always uses the newest Copernicus dataset version, so values can change when Copernicus releases a new model.
 
 It needs a free Copernicus Marine account: store `COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` as repository secrets, or in a git-ignored `secrets.yaml` for local tests (`python3 scripts/with_secrets.py -- python3 marine_grib.py --timestamp 2026112318 --outdir out`).
 
@@ -62,7 +62,7 @@ Shell access:
 docker exec -it aladin-grib /bin/bash (or docker-compose exec aladin /bin/bash)
 ```
 
-The local container only builds the wind file; the water file is built by the workflow.
+The local container builds the water file too (it checks every 15 minutes and builds when Copernicus has new data). Pass `COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` in the environment, e.g. `docker-compose` reads them from your shell; without them only the wind file is built.
 
 ## Deploy on Fly.io
 
@@ -87,7 +87,7 @@ The tests need no network, Docker or CDO and run on every pull request. Tests th
           
 - **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model, and Copernicus Marine (Mediterranean physics and waves)
 - **Region**: Central Adriatic Sea (13.0-17.5°E, 42.5-45.4°N)
-- **Time frame**: one ALADIN run, hourly steps 0-72, the same for both files
+- **Time frame**: wind: one ALADIN run, steps 0-72; water: from 00 UTC of the update day, steps 0-96, so the water file always covers the wind file
 - **Update frequency**: Roughly every 6 hours by CHMI, processed here when the workflow runs
 - **Wind file** (`aladin_adriacenter_<run>.grb`): ALADIN Lambert 2.3km grid, 0.02° (~2.2 km) regular lat-lon grid
   - Mean Sea Level Pressure (MSLP)
@@ -102,7 +102,7 @@ The tests need no network, Docker or CDO and run on every pull request. Tests th
 ## How It Works
 
 1. **Check** a lightweight Alpine container (`check_availability.py`) scrapes the CHMI OpenData directory and verifies all 6 required variables are present for the latest model run. If that run is already processed, the work is skipped.
-2. **Download** the latest ALADIN model data from CHMI, and the Copernicus subset for the same run
+2. **Download** the latest ALADIN model data from CHMI, and, independently, the Copernicus subset whenever Copernicus has an update
 3. **Process** the wind GRIB files using CDO:
    - Reproject from Lambert to regular lat-lon grid
    - Subset to Adriatic region bounding box
