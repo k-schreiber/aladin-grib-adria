@@ -6,33 +6,30 @@ Automated downloader, cutter, reprojection, and merger of CHMI Aladin 2.3km GRIB
 
 ## Run Via GitHub Actions
 
-A workflow is scheduled every hour (GitHub fires only a few of these per day) and publishes the latest data to the `gh-pages` branch.
+A workflow is scheduled every hour (GitHub in practice starts it only a few times a day) and publishes the latest data to the `gh-pages` branch.
 No server setup required.
 
 The pipeline has four jobs:
 
-1. **check** — a lightweight Alpine-based container runs `check_availability.py`, which scrapes the CHMI OpenData directory and verifies that all 6 required variables for the latest model run (00/06/12/18 UTC) are present. It decides separately for the wind file and the water file whether that run still needs processing; if neither does, the other jobs are skipped.
+1. **check** — a lightweight Alpine-based container runs `check_availability.py`, which scrapes the CHMI OpenData directory and verifies that all 6 required variables for the latest model run (00/06/12/18 UTC) are present. It then decides separately for the wind file and the water file whether that run still needs processing. If neither does, the other jobs are skipped.
 
-2. **wind** — builds the processor image, downloads and processes the ALADIN GRIB files, renders a static wind map and validates the result.
+2. **wind** — builds the full processor image, downloads and processes the ALADIN GRIB files and renders a static wind map.
 
-3. **marine** — builds the same image and creates the Copernicus water file (see below). It does not depend on `wind`: if one of the two fails, the other still runs.
+3. **marine** — builds the same image and creates the Copernicus water file. It does not depend on `wind`: if one fails, the other still runs.
 
-4. **publish** — runs whenever something was processed, even if a job failed. Each file is taken from its new run if that job succeeded, otherwise the previously published file is kept. It writes a status line and, if a file is stale, a warning on the website and in the `gh-pages` README, then force-pushes a single-commit orphan to `gh-pages`. A failed file is retried at the next scheduled run.
+4. **publish** — assembles the site from the new files, or from the previously published ones if a job failed (so there is always a valid wind and water file), adds a status line and a warning if something is stale, and force-pushes a single-commit orphan to `gh-pages`.
 
-To test a change without publishing, dispatch the workflow from a branch with `dry_run` (the assembled site is uploaded as an artifact; only runs on `main` that are not dry runs deploy). `force` reprocesses the latest run, and `simulate` (with `dry_run`) makes the wind or marine job fail on purpose.
+A failed file is retried at the next scheduled run. To try a change without publishing, start the workflow from a branch with `dry_run`; `force` reprocesses the latest run. More detail for development is in [docs](docs/README.md).
 
 ## Wind Map
 
 Each processing run renders a static PNG of 10m wind speed and direction over the Adriatic bounding box, with a coastline overlay (clipped from Natural Earth 10m coastline data, bundled in [`adriatic_coastline.json`](adriatic_coastline.json)). It's generated with CDO + matplotlib and embedded directly in the [`gh-pages` README](https://github.com/k-schreiber/aladin-grib-adria/tree/gh-pages).
 
-## Water File (Copernicus Marine)
+## Water File
 
-`copernicus_adriacenter_<YYYYMMDDHH>.grb` (and `copernicus_adriacenter_latest.grb`) holds the surface current (ocean and tide, `uo`/`vo`) and the waves (height, direction and period, plus wind-sea and primary swell) from the Copernicus Mediterranean forecast. It covers the same hourly steps (0-72) of the same ALADIN run as the wind file, on the **native 1/24° grid, not regridded**, in GRIB1 with the same header conventions. Land points are missing values (a bitmap).
+`copernicus_adriacenter_<run>.grb` holds the surface current (ocean and tide) and the waves (height, direction, period, wind sea and swell) from the Copernicus Mediterranean forecast. It covers the same run and the same hourly steps as the wind file, on the native 1/24° grid (not regridded), in the same GRIB1 format. Land points are missing values. It always uses the newest Copernicus dataset version, so values can change when Copernicus releases a new model.
 
-- Code: [`marine_grib.py`](marine_grib.py) fetches a server-side subset, [`grib_validate.py`](grib_validate.py) checks the result, [`build_site.py`](build_site.py) assembles the published site.
-- **Credentials:** the `COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` repository secrets (a free Copernicus Marine account). For local tests put the same two keys into `secrets.yaml` (git-ignored) and run `python3 scripts/with_secrets.py -- python3 marine_grib.py --timestamp 2026112318 --outdir out`; the values are never printed.
-- **Dataset versions are pinned** in `marine_grib.py`, because a new version is a new model release with different values on the same grid. Each run logs newer versions and retirement dates: currents `202511` retires on **2027-01-12** (a newer `202611` exists), so the pin must be reviewed and changed before then.
-- Contains modified Copernicus Marine Service information: https://doi.org/10.48670/mds-00359 (currents), https://doi.org/10.48670/mds-00373 (waves).
+It needs a free Copernicus Marine account: store `COPERNICUSMARINE_SERVICE_USERNAME` and `COPERNICUSMARINE_SERVICE_PASSWORD` as repository secrets, or in a git-ignored `secrets.yaml` for local tests (`python3 scripts/with_secrets.py -- python3 marine_grib.py --timestamp 2026112318 --outdir out`).
 
 
 ## Run locally
@@ -65,6 +62,8 @@ Shell access:
 docker exec -it aladin-grib /bin/bash (or docker-compose exec aladin /bin/bash)
 ```
 
+The local container only builds the wind file; the water file is built by the workflow.
+
 ## Deploy on Fly.io
 
 ```bash
@@ -82,29 +81,34 @@ https://aladin-grib-adria.fly.dev/aladin_adriacenter_latest.grb
 python3 -m unittest discover -s tests -t .
 ```
 
-The tests need no network, Docker or CDO and run on every pull request. Tests that exercise `numpy`, `eccodes`, `requests` or `matplotlib` are skipped when those are not installed (`pip install numpy matplotlib requests beautifulsoup4 eccodes`).
+The tests need no network, Docker or CDO and run on every pull request. Tests that need `numpy`, `eccodes`, `requests` or `matplotlib` are skipped if those are not installed.
 
 ## About This Data
           
-- **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model
-- **Model**: ALADIN Lambert 2.3km grid
+- **Source**: Czech Hydrometeorological Institute (CHMI) - ALADIN model, and Copernicus Marine (Mediterranean physics and waves)
 - **Region**: Central Adriatic Sea (13.0-17.5°E, 42.5-45.4°N)
-- **Resolution**: 0.02° (~2.2 km) regular lat-lon grid
-- **Update frequency**: Roughly every 6 hours by CHMI, processed here within 1 hour
-- **Variables included**:
+- **Time frame**: one ALADIN run, hourly steps 0-72, the same for both files
+- **Update frequency**: Roughly every 6 hours by CHMI, processed here when the workflow runs
+- **Wind file** (`aladin_adriacenter_<run>.grb`): ALADIN Lambert 2.3km grid, 0.02° (~2.2 km) regular lat-lon grid
   - Mean Sea Level Pressure (MSLP)
   - Wind Speed and Direction at 10m
   - Wind Gusts (u/v components)
   - Temperature at 2m
+- **Water file** (`copernicus_adriacenter_<run>.grb`): native 1/24° (~4 km) points
+  - Surface current (u/v components)
+  - Wave height, direction and period, wind sea and primary swell
+- Contains modified Copernicus Marine Service information: https://doi.org/10.48670/mds-00359 (currents), https://doi.org/10.48670/mds-00373 (waves)
 
 ## How It Works
 
-1. **Check** a lightweight Alpine container (`check_availability.py`) scrapes the CHMI OpenData directory and verifies all 6 required variables are present for the latest model run. If the timestamp is already cached, processing is skipped entirely.
-2. **Download** the latest ALADIN model data from CHMI every hour
-3. **Process** the GRIB files using CDO:
+1. **Check** a lightweight Alpine container (`check_availability.py`) scrapes the CHMI OpenData directory and verifies all 6 required variables are present for the latest model run. If that run is already processed, the work is skipped.
+2. **Download** the latest ALADIN model data from CHMI, and the Copernicus subset for the same run
+3. **Process** the wind GRIB files using CDO:
    - Reproject from Lambert to regular lat-lon grid
    - Subset to Adriatic region bounding box
    - Merge multiple variables into single file
+
+   The water file is written with eccodes and checked before it is used.
 4. **Publish** to this `gh-pages` branch for public access
           
 
