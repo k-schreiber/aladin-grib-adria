@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from tests.helpers import HAVE_ECCODES, HAVE_NUMPY
+from tests.helpers import HAVE_ECCODES, HAVE_NETCDF, HAVE_NUMPY
 
 import region
 
@@ -142,6 +142,16 @@ class PureFunctionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "time axis"):
                 self.mg.check_axes(self.axes(times=bad), self.axes(), T0)
 
+    def test_check_axes_rejects_a_half_hour_offset_that_hour_truncation_would_hide(self):
+        shifted = self.mg.expected_times(T0).astype("datetime64[s]") + self.np.timedelta64(1800, "s")
+        with self.assertRaisesRegex(ValueError, "time axis"):
+            self.mg.check_axes(self.axes(times=shifted), self.axes(), T0)
+
+    def test_the_attribution_names_the_dois_of_both_datasets(self):
+        import build_site
+        for source in (self.mg.CURRENTS, self.mg.WAVES):
+            self.assertIn(source["doi"], build_site.ATTRIBUTION)
+
     def test_check_axes_rejects_datasets_on_different_grids(self):
         shifted = [x + 0.01 for x in region.MARINE_LONS]
         with self.assertRaisesRegex(ValueError, "differ in longitude"):
@@ -273,3 +283,67 @@ class WriteGribTests(unittest.TestCase):
             self.assertEqual(self.mg.write_grib(path, data, lons, lats, T0), 11 * steps)
             self.gv.validate_marine(path, "2026112318")
             self.assertLess(os.path.getsize(path), 8e6)
+
+
+@unittest.skipUnless(HAVE_NETCDF and HAVE_NUMPY, "needs xarray, h5netcdf, h5py and numpy")
+class LoadDataTests(unittest.TestCase):
+    """Reads small synthetic NetCDF files shaped like the Copernicus subsets, including the extra edge
+    points a padded request returns and the 2e-6 degree longitude offset of the wave dataset."""
+
+    @classmethod
+    def setUpClass(cls):
+        import numpy as np
+        import xarray as xr
+        import marine_grib
+        cls.np, cls.xr, cls.mg = np, xr, marine_grib
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def write(self, name, variables, lon_offset=0.0, system="SYSTEM", dims=("time", "latitude", "longitude"),
+              time_shift_minutes=0):
+        np = self.np
+        lons = np.array([12.9583] + list(region.MARINE_LONS) + [17.5417]) + lon_offset  # one point outside each side
+        lats = np.array(list(region.MARINE_LATS) + [45.4375])
+        times = self.mg.expected_times(T0).astype("datetime64[ns]") + np.timedelta64(time_shift_minutes, "m")
+        base = (1000 * np.arange(lats.size)[:, None] + np.arange(lons.size)[None, :]).astype("float32")
+        arr = np.broadcast_to(base, (times.size, lats.size, lons.size)).copy()
+        arr[:, 5, 10] = np.nan  # a land point inside the region
+        if dims[0] == "latitude":
+            arr = arr.transpose(1, 0, 2)
+        dataset = self.xr.Dataset({v: (dims, arr) for v in variables},
+                                  coords={"time": times, "latitude": lats, "longitude": lons}, attrs={"source": system})
+        path = os.path.join(self.tmp.name, name)
+        dataset.to_netcdf(path, engine="h5netcdf")
+        return path
+
+    def paths(self, **kwargs):
+        wave_names = [f[0] for f in self.mg.FIELDS if f[3] == "waves"]
+        return (self.write("cur.nc", ["uo", "vo"], system="SYS-C", **{k: v for k, v in kwargs.items() if k != "wave"}),
+                self.write("wav.nc", wave_names, lon_offset=1.9e-6, system="SYS-W", **kwargs.get("wave", {})))
+
+    def test_edge_points_are_cropped_and_the_values_land_on_the_right_cells(self):
+        data, lons, lats, systems = self.mg.load_data(*self.paths(), T0)
+        self.assertEqual((lons.size, lats.size), (region.MARINE_NX, region.MARINE_NY))
+        for name, _, _, _ in self.mg.FIELDS:
+            self.assertEqual(data[name].shape, (73, region.MARINE_NY, region.MARINE_NX))
+        uo = data["uo"][0]
+        self.assertEqual(uo[0, 0], 1.0)  # full grid cell (row 0, column 1): one extra column lies west of the region
+        self.assertEqual(uo[-1, -1], 1000 * 69 + 109)  # the extra row and column beyond the region are gone
+        self.assertTrue(self.np.isnan(uo[5, 9]))  # the land point moved one column west with the crop
+        self.assertEqual(int(self.np.isnan(uo).sum()), 1)
+        self.assertAlmostEqual(float(lons[0]), 13.0, places=4)
+        self.assertAlmostEqual(float(lats[-1]), 45.3958, places=3)
+
+    def test_the_model_system_of_each_file_is_returned(self):
+        _, _, _, systems = self.mg.load_data(*self.paths(), T0)
+        self.assertEqual(systems, {"currents": "SYS-C", "waves": "SYS-W"})
+
+    def test_a_time_axis_shifted_by_half_an_hour_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "time axis"):
+            self.mg.load_data(*self.paths(time_shift_minutes=30), T0)
+
+    def test_unexpected_dimension_order_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unexpected dimensions"):
+            self.mg.load_data(*self.paths(dims=("latitude", "time", "longitude")), T0)

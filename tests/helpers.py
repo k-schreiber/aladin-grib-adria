@@ -9,6 +9,7 @@ if ROOT not in sys.path:
 
 HAVE_ECCODES = importlib.util.find_spec("eccodes") is not None
 HAVE_NUMPY = importlib.util.find_spec("numpy") is not None
+HAVE_NETCDF = all(importlib.util.find_spec(m) is not None for m in ("xarray", "h5netcdf", "h5py"))
 MISSING = 9999.0
 
 

@@ -47,6 +47,8 @@ RUN crontab /app/process.cron
 
 # Set environment variables
 ENV OUTDIR=/data
+# Unbuffered output: a hung or timed-out job must still show how far it got.
+ENV PYTHONUNBUFFERED=1
 
 # Create data directory
 RUN mkdir -p /data /tmp/aladin

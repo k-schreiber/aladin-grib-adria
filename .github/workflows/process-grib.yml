@@ -46,14 +46,14 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build checker image
-        run: |
-          docker buildx build \
-            --file Dockerfile.checker \
-            --tag aladin-checker:latest \
-            --cache-from type=gha,scope=checker \
-            --cache-to type=gha,mode=max,scope=checker \
-            --load \
-            .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.checker
+          load: true
+          tags: aladin-checker:latest
+          cache-from: type=gha,scope=checker
+          cache-to: type=gha,mode=max,scope=checker
 
       - name: Run availability check
         id: checker
@@ -239,8 +239,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # Only a branch that does not exist yet (the very first deploy) may be skipped. Any other failure must
+      # fail this job: without the published files every failed asset would be reported "missing" and the
+      # deploy would remove its published file.
+      - name: Check whether a published site exists
+        id: published
+        run: |
+          rc=0
+          git ls-remote --exit-code --heads origin gh-pages > /dev/null 2>&1 || rc=$?
+          case "$rc" in
+            0) echo "exists=true" >> "$GITHUB_OUTPUT" ;;
+            2) echo "exists=false" >> "$GITHUB_OUTPUT"; echo "No gh-pages branch yet: first deploy." ;;
+            *) echo "git ls-remote failed with exit code $rc"; exit 1 ;;
+          esac
+
       - name: Checkout the published site
-        continue-on-error: true
+        if: ${{ steps.published.outputs.exists == 'true' }}
         uses: actions/checkout@v7
         with:
           ref: gh-pages
@@ -262,12 +276,16 @@ jobs:
 
       - name: Assemble the site
         id: site
+        env:
+          SITE_EXISTS: ${{ steps.published.outputs.exists }}
         run: |
+          prev_args=()
+          if [ "$SITE_EXISTS" = "true" ]; then prev_args=(--prev prev); fi
           python3 build_site.py \
             --ts "$TS" \
             --wind-result "${{ needs.wind.result }}" \
             --marine-result "${{ needs.marine.result }}" \
-            --prev prev \
+            "${prev_args[@]}" \
             --wind artifacts/wind \
             --marine artifacts/marine \
             --out site

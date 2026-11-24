@@ -75,6 +75,8 @@ def previous_state(prev_dir, name):
     entry = (status.get("assets") or {}).get(name)
     if entry and entry.get("run") in runs:
         return dict(entry)
+    if entry and entry.get("state") == "missing" and not runs:
+        return dict(entry)  # keeps failed_since, so a repeated failure does not change the site
     if runs:
         return {"state": "ok", "run": runs[-1], "published_utc": None, "failed_for": None, "failed_since_utc": None}
     return None
@@ -104,8 +106,11 @@ def decide(result, new, prev, ts, now):
         if prev and prev.get("run") and new["run"] < prev["run"]:
             return "guarded", dict(prev)  # never go back to an older ALADIN run
         state = {"state": "ok", "run": new["run"], "published_utc": now, "failed_for": None, "failed_since_utc": None}
-        if new.get("meta", {}).get("data_updated_utc"):
-            state["data_updated_utc"] = new["meta"]["data_updated_utc"]
+        meta = new.get("meta", {})
+        if meta.get("data_updated_utc"):
+            state["data_updated_utc"] = meta["data_updated_utc"]
+        if meta.get("model_systems"):
+            state["model_systems"] = meta["model_systems"]
         return "new", state
     if result == "skipped" and prev and prev.get("run"):
         return "kept", dict(prev)
@@ -114,8 +119,9 @@ def decide(result, new, prev, ts, now):
         state = dict(prev)
         state.update(state="stale", failed_for=ts, failed_since_utc=since or now)
         return "failed", state
+    since = prev.get("failed_since_utc") if prev and prev.get("state") == "missing" else None
     return "failed", {"state": "missing", "run": None, "published_utc": None,
-                      "failed_for": ts, "failed_since_utc": now}
+                      "failed_for": ts, "failed_since_utc": since or now}
 
 
 def copy_asset(spec, run, source_dir, out_dir, extra_path=None):
@@ -134,19 +140,25 @@ def copy_asset(spec, run, source_dir, out_dir, extra_path=None):
     return written
 
 
+def model_text(entry):
+    systems = entry.get("model_systems") or {}
+    parts = [f"{systems[k]} ({k})" for k in ("currents", "waves") if systems.get(k)]
+    return ", model " + " / ".join(parts) if parts else ""
+
+
 def status_line(spec, entry, name):
     title = spec["title"]
     if entry["state"] == "missing":
         return f"{title}: not available yet"
     what = f"run {fmt_run(entry['run'])}" if name == "wind" else f"valid for ALADIN run {fmt_run(entry['run'])}"
     if entry["state"] == "stale":
-        return f"{title}: {what}, STALE since {fmt_utc(entry['failed_since_utc'])}"
+        return f"{title}: {what}, STALE since {fmt_utc(entry['failed_since_utc'])}{model_text(entry)}"
     text = f"{title}: {what}, OK"
     if entry.get("published_utc"):
         text += f", published {fmt_utc(entry['published_utc'])}"
     if name == "marine" and entry.get("data_updated_utc"):
         text += f", Copernicus data updated {fmt_utc(entry['data_updated_utc'])}"
-    return text
+    return text + model_text(entry)
 
 
 def warnings(status):
@@ -211,7 +223,7 @@ def render_readme(status, files):
         "- **Water source**: Copernicus Marine, Mediterranean Sea Physics and Waves Analysis and Forecast, 1/24° grid",
         f"- **Region**: Adriatic Sea ({region.LON_MIN}-{region.LON_MAX}°E, {region.LAT_MIN}-{region.LAT_MAX}°N)",
         f"- **Time frame**: one ALADIN run, hourly steps 0-{region.FORECAST_HOURS} (the water file uses the same run)",
-        "- **Wind resolution**: 0.02° (~2.2 km) regular lat-lon grid",
+        f"- **Wind resolution**: {region.DX}° (~2.2 km) regular lat-lon grid",
         "- **Water resolution**: native 1/24° (~4 km) points, not regridded",
         "- **Update frequency**: roughly every 6 hours by CHMI, processed here when GitHub runs the workflow",
         "- **Wind file variables**:",
@@ -279,6 +291,10 @@ def main(argv=None):
     args = p.parse_args(argv)
     if not re.fullmatch(r"\d{10}", args.ts):
         p.error("--ts must be YYYYMMDDHH")
+    if args.prev and not os.path.isdir(args.prev):
+        # Omit --prev only when nothing is published yet. A missing directory here would turn every
+        # failed asset into "missing" and the deploy would remove its published file.
+        p.error(f"--prev {args.prev} is not a directory")
 
     results = {"wind": args.wind_result, "marine": args.marine_result}
     dirs = {"wind": args.wind_dir, "marine": args.marine_dir}

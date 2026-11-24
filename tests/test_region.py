@@ -92,6 +92,10 @@ class PackagingTests(unittest.TestCase):
         for tool in tools - installed_elsewhere:
             self.assertRegex(dockerfile, re.compile(rf"^\s+{re.escape(tool)}\s*\\$", re.M), tool)
 
+    def test_the_container_does_not_buffer_python_output(self):
+        with open(os.path.join(ROOT, "Dockerfile")) as f:
+            self.assertRegex(f.read(), re.compile(r"^ENV PYTHONUNBUFFERED=1\s*$", re.M))
+
     def test_dockerignore_keeps_credentials_out_of_the_build_context(self):
         with open(os.path.join(ROOT, ".dockerignore")) as f:
             self.assertIn("secrets.yaml", f.read().split())

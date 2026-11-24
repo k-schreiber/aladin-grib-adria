@@ -34,7 +34,9 @@ class SiteTests(unittest.TestCase):
                 write(os.path.join(d, f"aladin_wind_{run}.png"), b"png-" + run.encode())
         else:
             write(os.path.join(d, f"copernicus_adriacenter_{run}.grb"), content)
-            write(os.path.join(d, "marine_meta.json"), json.dumps({"data_updated_utc": "2026-11-23T18:45:00.584Z"}).encode())
+            write(os.path.join(d, "marine_meta.json"), json.dumps({
+                "data_updated_utc": "2026-11-23T18:45:00.584Z",
+                "model_systems": {"currents": "MedFS EAS10", "waves": "MEDWAM4"}}).encode())
         return d
 
     def prev(self, wind=None, marine=None, status=False, name="prev"):
@@ -171,6 +173,31 @@ class SiteTests(unittest.TestCase):
         self.assertTrue(first_changed)
         _, _, again_changed, _ = self.build("2026112318", "failure", "skipped", first, now=LATER, out="b")
         self.assertFalse(again_changed)
+
+    def test_a_repeated_failure_with_nothing_ever_published_does_not_change_the_site(self):
+        _, _, first_changed, first = self.build("2026112318", "failure", "failure", None, now=NOW, out="a")
+        status, _, again_changed, _ = self.build("2026112318", "failure", "failure", first, now=LATER, out="b")
+        self.assertTrue(first_changed)
+        self.assertFalse(again_changed)
+        self.assertEqual(status["assets"]["wind"]["state"], "missing")
+        self.assertEqual(status["assets"]["wind"]["failed_since_utc"], NOW)
+
+    def test_the_copernicus_model_system_is_published_with_the_status(self):
+        status, _, _, out = self.build("2026112318", "skipped", "success", self.prev(wind="2026112318"), None,
+                                       self.artifact("marine", "2026112318"))
+        self.assertEqual(status["assets"]["marine"]["model_systems"], {"currents": "MedFS EAS10", "waves": "MEDWAM4"})
+        for page in ("README.md", "index.html"):
+            self.assertIn("model MedFS EAS10 (currents) / MEDWAM4 (waves)", self.read("site", page))
+        self.assertNotIn("model", build_site.status_line(build_site.ASSETS["wind"], status["assets"]["wind"], "wind"))
+        # a stale water file still says which model produced it
+        _, _, _, stale = self.build("2026112400", "skipped", "failure", out, out="stale")
+        self.assertIn("MedFS EAS10", self.read("stale", "README.md"))
+
+    def test_a_prev_directory_that_is_missing_is_an_error_not_an_empty_site(self):
+        with self.assertRaises(SystemExit) as raised:
+            build_site.main(["--ts", "2026112318", "--wind-result", "failure", "--marine-result", "failure",
+                             "--prev", self.path("does-not-exist"), "--out", self.path("o")])
+        self.assertEqual(raised.exception.code, 2)
 
     def test_the_failure_since_time_survives_repeated_failures(self):
         prev = self.prev(wind="2026112312")

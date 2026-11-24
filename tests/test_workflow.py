@@ -41,6 +41,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("needs.check.result == 'success'", publish)
         self.assertRegex(publish, re.compile(r"^    if: \$\{\{.*!cancelled\(\)", re.M))  # an expression, not a bare YAML tag
 
+    def test_the_published_site_is_required_unless_the_branch_does_not_exist_yet(self):
+        publish = self.jobs["publish"]
+        self.assertNotIn("continue-on-error", publish)  # an unreadable gh-pages must fail the job, never look empty
+        checkout = [s for s in steps(publish) if "ref: gh-pages" in s]
+        self.assertEqual(len(checkout), 1)
+        self.assertIn("steps.published.outputs.exists == 'true'", checkout[0])
+        probe = [s for s in steps(publish) if "id: published" in s][0]
+        self.assertIn("git ls-remote --exit-code --heads origin gh-pages", probe)
+        self.assertRegex(probe, r"2\) echo \"exists=false\"")  # only 'no such branch' means a first deploy
+        self.assertRegex(probe, r"\*\) .*exit 1")
+        assemble = [s for s in steps(publish) if "id: site" in s][0]
+        self.assertIn("--prev prev", assemble)
+        self.assertIn('SITE_EXISTS" = "true"', assemble)
+
     def test_job_outputs_are_compared_as_strings(self):
         for line in self.text.splitlines():
             if line.strip().startswith("if:") and "need_" in line:

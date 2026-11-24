@@ -147,7 +147,8 @@ def load_data(currents_path, waves_path, t0):
         ds = xr.open_dataset(path, engine="h5netcdf")
         lon, lat = ds["longitude"].values.astype("float64"), ds["latitude"].values.astype("float64")
         xi, yi = crop_index(lon, region.LON_MIN, region.LON_MAX), crop_index(lat, region.LAT_MIN, region.LAT_MAX)
-        sources[label] = (ds, xi, yi, (lon[xi], lat[yi], ds["time"].values.astype("datetime64[h]")))
+        # seconds, not hours: truncating to hours would hide a half-hour offset of the time stamps
+        sources[label] = (ds, xi, yi, (lon[xi], lat[yi], ds["time"].values.astype("datetime64[s]")))
     check_axes(sources["currents"][3], sources["waves"][3], t0)
 
     data = {}
