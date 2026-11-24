@@ -5,11 +5,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install CDO with all projection support. Without recommends: they pulled in a Debian
 # Python stack (numpy 1.21, matplotlib 3.5, ...) and the ncview GUI libraries.
+# bzip2 is listed on purpose: load_and_merge_gribs.py runs it, and it was only ever there as a recommend.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    bzip2 \
     cdo \
     libeccodes-tools \
     nco \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && for tool in bzip2 cdo; do command -v "$tool" >/dev/null || { echo "missing $tool"; exit 1; }; done
 
 # Install system packages and Python 3 pip
 RUN apt-get update && apt-get install -y --no-install-recommends \

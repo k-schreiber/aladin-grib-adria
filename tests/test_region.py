@@ -79,6 +79,19 @@ class PackagingTests(unittest.TestCase):
         for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json", "marine_grib.py", "grib_validate.py"):
             self.assertIn(name, copied)
 
+    def test_dockerfile_installs_every_external_tool_the_wind_script_runs(self):
+        # The apt layer is installed without recommends, so a tool is only there if it is listed
+        # (bzip2 used to arrive as a recommend and its removal broke the wind job in CI).
+        with open(os.path.join(ROOT, "load_and_merge_gribs.py")) as f:
+            tools = set(re.findall(r'subprocess\.run\(\s*\[\s*"([\w.-]+)"', f.read()))
+        with open(os.path.join(ROOT, "Dockerfile")) as f:
+            dockerfile = f.read()
+        installed_elsewhere = {"rm"}  # coreutils
+        self.assertIn("bzip2", tools)
+        self.assertIn("cdo", tools)
+        for tool in tools - installed_elsewhere:
+            self.assertRegex(dockerfile, re.compile(rf"^\s+{re.escape(tool)}\s*\\$", re.M), tool)
+
     def test_dockerignore_keeps_credentials_out_of_the_build_context(self):
         with open(os.path.join(ROOT, ".dockerignore")) as f:
             self.assertIn("secrets.yaml", f.read().split())
