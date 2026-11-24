@@ -223,12 +223,13 @@ class SiteTests(unittest.TestCase):
         status, _, _, out = self.build("2026112318", "skipped", "success", self.prev(wind="2026112318"), None,
                                        self.artifact("marine", "2026112318"))
         self.assertEqual(status["assets"]["marine"]["model_systems"], {"currents": "MedFS EAS10", "waves": "MEDWAM4"})
-        for page in ("README.md", "index.html"):
-            self.assertIn("model MedFS EAS10 (currents) / MEDWAM4 (waves)", self.read("site", page))
+        self.assertIn("model MedFS EAS10 (currents) / MEDWAM4 (waves)", self.read("site", "README.md"))
+        self.assertIn("<td>MedFS EAS10 (currents) / MEDWAM4 (waves)</td>", self.read("site", "index.html"))
         self.assertNotIn("model", build_site.status_line(build_site.ASSETS["wind"], status["assets"]["wind"], "wind"))
         # a stale water file still says which model produced it
         _, _, _, stale = self.build("2026112400", "skipped", "failure", out, out="stale")
         self.assertIn("MedFS EAS10", self.read("stale", "README.md"))
+        self.assertIn("MedFS EAS10", self.read("stale", "index.html"))
 
     def test_a_prev_directory_that_is_missing_is_an_error_not_an_empty_site(self):
         with self.assertRaises(SystemExit) as raised:
