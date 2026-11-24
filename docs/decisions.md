@@ -42,4 +42,4 @@ Why things are the way they are, and what was rejected. Entries 1-7 are **recons
 
 ## Considered and not done
 
-A data-age display on the page (declined, 21); an external trigger (cron service / Fly app calling `workflow_dispatch`, needs a PAT) and an in-run poll loop (26); Stokes drift (13); GHCR build-once (23); a side-by-side comparison of dataset versions before following them (15).
+A data-age display on the page (declined, 21); an external trigger (cron service / Fly app calling `workflow_dispatch`, needs a PAT) and an in-run poll loop (26); Stokes drift (13); GHCR build-once (23); a side-by-side comparison of dataset versions before following them (15). Further Copernicus fields (sea level, SST, max wave height, observations, CAMS) were surveyed but not added yet: [data-sources.md](data-sources.md).
