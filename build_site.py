@@ -197,22 +197,89 @@ def human_size(path):
     return f"{os.path.getsize(path) / 1e6:.1f} MB"
 
 
+STYLE = """
+body { font-family: sans-serif; margin: 1.5em; max-width: 70em; }
+table { border-collapse: collapse; margin: 0.5em 0 1.5em; }
+th, td { border: 1px solid #888; padding: 0.4em 0.8em; text-align: left; vertical-align: top; }
+th { background: #eee; }
+td.key { background: #ffef9f; font-weight: bold; white-space: nowrap; }
+tr.bad td { background: #fee; }
+tr.bad td.key { background: #fcc; }
+"""
+
+SOURCES = {"wind": "CHMI ALADIN 2.3 km", "marine": "Copernicus Marine"}
+
+
+def model_cell(entry):
+    systems = entry.get("model_systems") or {}
+    parts = [f"{systems[k]} ({k})" for k in ("currents", "waves") if systems.get(k)]
+    return " / ".join(parts) or "-"
+
+
+def status_text(entry):
+    if entry["state"] == "missing":
+        return "NOT AVAILABLE"
+    if entry["state"] == "stale":
+        return f"STALE since {fmt_utc(entry['failed_since_utc'])}"
+    return "OK"
+
+
+def cell(text, css=""):
+    return f'<td class="{css}">{html.escape(text)}</td>' if css else f"<td>{html.escape(text)}</td>"
+
+
+def short_run(run):
+    return fmt_run(run) if run else "-"
+
+
+def render_status_table(status):
+    rows = ["<table>", "<tr><th>Data</th><th>Source</th><th>Status</th><th>Model run / reference time</th>"
+            "<th>Processed / uploaded</th><th>Source data updated</th><th>Model</th></tr>"]
+    for name, spec in ASSETS.items():
+        entry = status["assets"][name]
+        bad = entry["state"] != "ok"
+        published = entry.get("published_utc")
+        rows.append(f'<tr class="bad">' if bad else "<tr>")
+        rows += [cell(spec["title"]), cell(SOURCES[name]), cell(status_text(entry)),
+                 cell(short_run(entry.get("run")), "key"),
+                 cell(fmt_utc(published) if published else "-", "key"),
+                 cell(fmt_utc(entry["data_updated_utc"]) if entry.get("data_updated_utc") else "-"),
+                 cell(model_cell(entry)), "</tr>"]
+    rows.append("</table>")
+    return rows
+
+
+def render_files_table(status, out_dir, files):
+    rows = ["<table>", "<tr><th>File</th><th>Data</th><th>Model run / reference time</th>"
+            "<th>Processed / uploaded</th><th>Size</th></tr>"]
+    for f in files:
+        if not f.endswith(".grb"):
+            continue
+        name = "wind" if f.startswith("aladin_") else "marine"
+        entry = status["assets"][name]
+        match = ASSETS[name]["pattern"].match(f)
+        run = match.group(1) if match else entry.get("run")
+        published = entry.get("published_utc")
+        rows += ["<tr>", f'<td><a href="{html.escape(f)}">{html.escape(f)}</a></td>',
+                 cell(ASSETS[name]["title"]), cell(short_run(run), "key"),
+                 cell(fmt_utc(published) if published else "-", "key"),
+                 cell(human_size(os.path.join(out_dir, f))), "</tr>"]
+    rows.append("</table>")
+    return rows
+
+
 def render_index(status, out_dir, files):
     lines = ['<!DOCTYPE html>', '<html lang="en">',
-             '<head><meta charset="utf-8"><title>ALADIN GRIB Files</title></head>', '<body>',
+             f'<head><meta charset="utf-8"><title>ALADIN GRIB Files</title><style>{STYLE}</style></head>', '<body>',
              '<h1>ALADIN Adria GRIB Files</h1>']
     for w in warnings(status):
         lines.append('<p style="border:2px solid #b00;background:#fee;padding:0.6em">'
                      f'<strong>Warning:</strong> {html.escape(w)}</p>')
-    lines.append('<h2>Data status</h2><ul>')
-    for name, spec in ASSETS.items():
-        lines.append(f'<li>{html.escape(status_line(spec, status["assets"][name], name))}</li>')
-    lines.append('</ul><h2>Files</h2><ul>')
-    for f in files:
-        if f.endswith(".grb"):
-            lines.append(f'<li><a href="{html.escape(f)}">{html.escape(f)}</a> ({human_size(os.path.join(out_dir, f))})</li>')
-    lines.append('</ul>')
-    lines.append(f'<p>Updated: {html.escape(fmt_utc(status["updated_utc"]))}</p>')
+    lines.append('<h2>Data status</h2>')
+    lines += render_status_table(status)
+    lines.append('<h2>Files</h2>')
+    lines += render_files_table(status, out_dir, files)
+    lines.append(f'<p>Page updated: {html.escape(fmt_utc(status["updated_utc"]))}. All times are UTC.</p>')
     lines.append(f'<p><small>{html.escape(ATTRIBUTION)}</small></p>')
     lines += ['</body>', '</html>']
     return "\n".join(lines) + "\n"
