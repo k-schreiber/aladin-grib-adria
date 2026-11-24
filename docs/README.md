@@ -14,6 +14,7 @@ Developer documentation for aladin-grib-adria: what the system produces, how, an
 | run, test, force or debug the pipeline; routine maintenance | [operations.md](operations.md) |
 | add or change tests | [testing.md](testing.md) |
 | know why something is the way it is, or what was rejected | [decisions.md](decisions.md) |
+| add more Copernicus fields or data sources | [data-sources.md](data-sources.md) (survey, not implemented) |
 
 Reading order for a new developer: architecture, grib-format, then the pipeline you touch.
 
@@ -23,6 +24,7 @@ Reading order for a new developer: architecture, grib-format, then the pipeline 
 |---|---|
 | architecture, marine-pipeline, publishing, testing, operations (except the Fly.io note), and the marine parts of grib-format and decisions | **Ground truth.** Written together with the code, checked against tests, real runs and real output (2026-11-24). |
 | wind-pipeline, the wind parts of grib-format, and the older entries of decisions | **Reconstructed.** Derived from the code, the git history and a decoded published file; no specification existed. Statements that could not be checked are marked *(inferred)* or *(not verified)*. |
+| data-sources | **Survey.** Catalogue metadata and web research (2026-11-24); nothing in it is implemented. |
 
 If a document and the code disagree, one of them is wrong: fix it in the same change. Invariants that are easy to break have a test (see [testing.md](testing.md)); the docs name the test where there is one.
 
