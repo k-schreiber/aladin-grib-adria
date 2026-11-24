@@ -76,8 +76,16 @@ class PackagingTests(unittest.TestCase):
     def test_dockerfile_ships_the_files_the_wind_script_needs(self):
         with open(os.path.join(ROOT, "Dockerfile")) as f:
             copied = " ".join(re.findall(r"^COPY\s+(.*)$", f.read(), flags=re.M))
-        for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json"):
+        for name in ("load_and_merge_gribs.py", "region.py", "adriatic_coastline.json", "marine_grib.py", "grib_validate.py"):
             self.assertIn(name, copied)
+
+    def test_dockerignore_keeps_credentials_out_of_the_build_context(self):
+        with open(os.path.join(ROOT, ".dockerignore")) as f:
+            self.assertIn("secrets.yaml", f.read().split())
+
+    def test_gitignore_keeps_credentials_out_of_git(self):
+        with open(os.path.join(ROOT, ".gitignore")) as f:
+            self.assertIn("secrets.yaml", f.read().split())
 
 
 if __name__ == "__main__":
