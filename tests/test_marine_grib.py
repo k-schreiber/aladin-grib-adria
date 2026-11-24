@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from unittest import mock
 
 from tests.helpers import HAVE_ECCODES, HAVE_NUMPY
 
@@ -49,9 +50,66 @@ class PureFunctionTests(unittest.TestCase):
         import grib_validate
         self.assertEqual(set(params), set(grib_validate.MARINE_RANGES))
 
-    def test_copernicus_dataset_versions_are_pinned(self):
-        for source in (self.mg.CURRENTS, self.mg.WAVES):
-            self.assertRegex(source["version"], r"^\d{6}$")
+    def test_no_dataset_version_is_requested_so_the_newest_one_is_used(self):
+        import sys
+        import types
+        calls = []
+        stub = types.ModuleType("copernicusmarine")
+        stub.subset = lambda **kwargs: calls.append(kwargs)
+        with mock.patch.dict(sys.modules, {"copernicusmarine": stub}), tempfile.TemporaryDirectory() as tmp:
+            path = self.mg.fetch(self.mg.CURRENTS, ["uo", "vo"], T0, tmp, "currents")
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("dataset_version", calls[0])
+        self.assertEqual(calls[0]["dataset_id"], "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m")
+        self.assertEqual((calls[0]["start_datetime"], calls[0]["end_datetime"]),
+                         ("2026-11-23T18:00:00", "2026-11-26T18:00:00"))
+        self.assertTrue(path.endswith("currents.nc"))
+
+    def catalogue(self, now):
+        import sys
+        import types
+
+        def version(label, released, updated, retired=None):
+            return types.SimpleNamespace(label=label, parts=[types.SimpleNamespace(
+                released_date=released, arco_updated_date=updated, retired_date=retired)])
+
+        def describe(dataset_id, **kwargs):
+            versions = {
+                "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m": [
+                    version("202511", "2025-11-25T13:00:00.000Z", "2026-11-23T11:58:32Z", "2027-01-12T13:00:00.000Z"),
+                    version("202611", "2026-11-24T13:00:00.000Z", "2026-11-25T12:00:00Z")],
+                "cmems_mod_med_wav_anfc_4.2km_PT1H-i": [version("202311", "2023-11-30T11:00:00.000Z", "2026-11-23T18:45:00Z")],
+            }[dataset_id]
+            return types.SimpleNamespace(products=[types.SimpleNamespace(datasets=[types.SimpleNamespace(versions=versions)])])
+
+        stub = types.ModuleType("copernicusmarine")
+        stub.describe = describe
+        with mock.patch.dict(sys.modules, {"copernicusmarine": stub}):
+            return self.mg.catalogue_info(now=now)
+
+    def test_before_a_new_version_is_released_the_old_one_is_in_use_and_its_retirement_is_reported(self):
+        updated, in_use, retires = self.catalogue(datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual(in_use, {"currents": "202511", "waves": "202311"})  # 202611 is listed but not released yet
+        self.assertEqual(retires, {"currents": "2027-01-12T13:00:00.000Z"})
+        self.assertEqual(updated, "2026-11-23T18:45:00Z")
+
+    def test_after_the_release_the_newest_version_is_followed_and_nothing_is_flagged(self):
+        updated, in_use, retires = self.catalogue(datetime(2026, 11, 24, 13, 1, tzinfo=timezone.utc))
+        self.assertEqual(in_use, {"currents": "202611", "waves": "202311"})
+        self.assertEqual(retires, {})
+        self.assertEqual(updated, "2026-11-25T12:00:00Z")
+
+    def test_a_catalogue_failure_never_fails_the_run(self):
+        import sys
+        import types
+        stub = types.ModuleType("copernicusmarine")
+
+        def broken(**kwargs):
+            raise RuntimeError("catalogue unavailable")
+
+        stub.describe = broken
+        with mock.patch.dict(sys.modules, {"copernicusmarine": stub}):
+            self.assertEqual(self.mg.catalogue_info(), (None, {}, {}))
 
     def test_native_grid_counts_come_from_origin_step_and_region(self):
         self.assertEqual((region.MARINE_NX, region.MARINE_NY), (109, 70))

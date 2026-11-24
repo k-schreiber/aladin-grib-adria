@@ -290,8 +290,10 @@ def main(argv=None):
     for w in warnings(status):
         lines.append(f"- WARNING: {w}")
     meta = read_json(os.path.join(dirs["marine"], "marine_meta.json")) if dirs["marine"] else None
-    if meta and (meta.get("newer_versions") or meta.get("retires_utc")):
-        lines.append(f"- Copernicus datasets: newer versions {meta.get('newer_versions')}, retirement {meta.get('retires_utc')}")
+    if meta and meta.get("model_systems"):
+        lines.append(f"- Copernicus model systems used: {meta['model_systems']} (dataset versions {meta.get('versions_in_use')})")
+    if meta and meta.get("retires_utc"):
+        lines.append(f"- WARNING: Copernicus dataset versions scheduled for retirement: {meta['retires_utc']}")
     lines.append(f"- {'content changed: deploy' if changed else 'nothing changed: no deploy'}")
     summary = "\n".join(lines) + "\n"
     print(summary)

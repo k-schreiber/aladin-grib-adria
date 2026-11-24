@@ -21,10 +21,11 @@ import numpy as np
 import grib_validate
 import region
 
-# Versions are pinned: a new version is a new model release (202611 differs from 202511 by ~0.07 m/s on
-# average with the same grid and mask), so switching is a decision, not something the toolbox does silently.
-CURRENTS = {"id": "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m", "version": "202511", "doi": "10.48670/mds-00359"}
-WAVES = {"id": "cmems_mod_med_wav_anfc_4.2km_PT1H-i", "version": "202311", "doi": "10.48670/mds-00373"}
+# No dataset version is requested: the toolbox then uses the newest one, so the files follow Copernicus'
+# model releases automatically (owner's decision). A new release can change the values on an unchanged
+# grid (202611 differs from 202511 by ~0.07 m/s on average); each run records which model system it got.
+CURRENTS = {"id": "cmems_mod_med_phy-cur_anfc_4.2km-2D_PT1H-m", "doi": "10.48670/mds-00359"}
+WAVES = {"id": "cmems_mod_med_wav_anfc_4.2km_PT1H-i", "doi": "10.48670/mds-00373"}
 
 # (variable, GRIB1 parameter, level type, source). Messages are written field by field, step by step.
 FIELDS = [
@@ -91,7 +92,6 @@ def fetch(source, variables, t0, outdir, name):
     def call():
         copernicusmarine.subset(
             dataset_id=source["id"],
-            dataset_version=source["version"],
             variables=variables,
             start_datetime=t0.strftime(fmt),
             end_datetime=t1.strftime(fmt),
@@ -138,7 +138,8 @@ def check_axes(currents, waves, t0):
 
 
 def load_data(currents_path, waves_path, t0):
-    """Read both NetCDF files, crop to the region and check them. Returns (data, lons, lats)."""
+    """Read both NetCDF files, crop to the region and check them.
+    Returns (data, lons, lats, model_systems) where model_systems names the system that produced each file."""
     import xarray as xr
 
     sources = {}
@@ -157,9 +158,10 @@ def load_data(currents_path, waves_path, t0):
             raise ValueError(f"{name}: unexpected dimensions {var.dims}")
         data[name] = var.values.astype("float64")[:, yi[0]:yi[-1] + 1, xi[0]:xi[-1] + 1]
     lons, lats = sources["currents"][3][0], sources["currents"][3][1]
+    systems = {label: ds.attrs.get("source") for label, (ds, _, _, _) in sources.items()}
     for ds, _, _, _ in sources.values():
         ds.close()
-    return data, lons, lats
+    return data, lons, lats, systems
 
 
 def _set_header(h, ec, lons, lats):
@@ -218,25 +220,34 @@ def write_grib(path, data, lons, lats, t0):
     return count
 
 
-def catalogue_info():
-    """(latest update time of the pinned dataset versions, newer versions per dataset, retirement dates).
+def released(part, now):
+    """Whether this dataset version's release time has passed (the toolbox ignores versions not yet released)."""
+    try:
+        return datetime.strptime(part.released_date[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc) <= now
+    except (TypeError, ValueError):
+        return True
+
+
+def catalogue_info(now=None):
+    """(latest update time, dataset version in use per dataset, retirement dates of those versions).
+    The toolbox uses the newest version that is already released; this mirrors that choice.
     Informational only: any failure returns empty values and never fails the run."""
+    now = now or datetime.now(timezone.utc)
     try:
         import copernicusmarine
 
-        stamps, newer, retires = [], {}, {}
+        stamps, in_use, retires = [], {}, {}
         for key, source in (("currents", CURRENTS), ("waves", WAVES)):
             catalogue = copernicusmarine.describe(dataset_id=source["id"], show_all_versions=True,
                                                   disable_progress_bar=True)
             versions = {v.label: v for v in catalogue.products[0].datasets[0].versions}
-            part = versions[source["version"]].parts[0]
+            usable = {label: v for label, v in versions.items() if released(v.parts[0], now)} or versions
+            in_use[key] = max(usable)
+            part = usable[in_use[key]].parts[0]
             stamps.append(part.arco_updated_date)
             if part.retired_date:
                 retires[key] = part.retired_date
-            later = sorted(label for label in versions if label > source["version"])
-            if later:
-                newer[key] = later
-        return max(stamps), newer, retires
+        return max(stamps), in_use, retires
     except Exception as e:
         print(f"Could not read the Copernicus catalogue ({type(e).__name__}); continuing without it")
         return None, {}, {}
@@ -264,23 +275,24 @@ def main(argv=None):
         with tempfile.TemporaryDirectory() as tmp:
             currents = fetch(CURRENTS, ["uo", "vo"], t0, tmp, "currents")
             waves = fetch(WAVES, [name for name, _, _, source in FIELDS if source == "waves"], t0, tmp, "waves")
-            data, lons, lats = load_data(currents, waves, t0)
+            data, lons, lats, systems = load_data(currents, waves, t0)
         count = write_grib(final, data, lons, lats, t0)
         try:
             grib_validate.validate_marine(final, args.timestamp)
         except grib_validate.ValidationError:
             os.remove(final)
             raise
-        updated, newer, retires = catalogue_info()
-        if newer or retires:
-            print(f"WARNING: newer dataset versions {newer}; pinned versions retire {retires}. "
-                  "Switching versions changes the data: compare before changing the pins in marine_grib.py.")
+        updated, in_use, retires = catalogue_info()
+        print(f"Copernicus model systems used: {systems}; dataset versions in use: {in_use}")
+        if retires:
+            print(f"WARNING: the dataset versions in use are scheduled for retirement: {retires}")
         meta = {
             "schema": 1,
             "timestamp": args.timestamp,
             "datasets": {"currents": CURRENTS, "waves": WAVES},
             "data_updated_utc": updated,
-            "newer_versions": newer,
+            "model_systems": systems,
+            "versions_in_use": in_use,
             "retires_utc": retires,
             "grid": {"ni": int(lons.size), "nj": int(lats.size)},
             "messages": count,
