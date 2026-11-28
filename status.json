@@ -1,0 +1,25 @@
+{
+ "schema": 1,
+ "updated_utc": "2026-11-28T14:20:18Z",
+ "assets": {
+  "wind": {
+   "state": "ok",
+   "run": "2026112806",
+   "published_utc": "2026-11-28T14:20:18Z",
+   "failed_for": null,
+   "failed_since_utc": null
+  },
+  "marine": {
+   "state": "ok",
+   "run": "2026112800",
+   "published_utc": "2026-11-28T05:05:15Z",
+   "failed_for": null,
+   "failed_since_utc": null,
+   "data_updated_utc": "2026-11-28T02:24:01.543Z",
+   "model_systems": {
+    "currents": "MedFS EAS11",
+    "waves": "MEDWAM4"
+   }
+  }
+ }
+}
